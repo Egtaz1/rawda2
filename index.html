@@ -1139,6 +1139,12 @@
                     <button onclick="app.toggleFocusMode()" class="w-10 h-10 rounded-xl bg-white border border-slate-200" title="وضع التركيز"><i class="fas fa-expand"></i></button>
                     <button id="favorite-lesson-btn" onclick="app.toggleFavoriteCurrentLesson()" class="w-10 h-10 rounded-xl bg-rose-50 text-rose-500" title="حفظ الدرس"><i class="far fa-bookmark"></i></button>
                     <button id="offline-lesson-btn" onclick="app.toggleOfflineCurrentLesson()" class="w-10 h-10 rounded-xl bg-cyan-50 text-cyan-600" title="حفظ بدون إنترنت"><i class="fas fa-cloud-arrow-down"></i></button>
+                    <button id="tts-toggle-btn" onclick="app.toggleTtsReaderBar()" class="px-3 h-10 rounded-xl bg-amber-50 text-amber-900 border border-amber-200 font-black text-xs" title="الاستماع الصوتي لنص الدرس المفرغ">
+                        <i class="fas fa-volume-high ml-1 text-amber-600"></i><span class="hidden sm:inline">استمع للنص</span>
+                    </button>
+                    <button onclick="app.openReportIssueModal('lesson')" class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200" title="أبلغ عن خطأ مطبعي أو أرسل ملاحظة للإدارة">
+                        <i class="fas fa-flag"></i>
+                    </button>
                     <button onclick="app.shareBenefitCard()" class="px-3 h-10 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 font-black text-xs" title="نسخ ومشاركة فائدة من الدرس">
                         <i class="fas fa-quote-right ml-1"></i><span class="hidden sm:inline">مشاركة فائدة</span>
                     </button>
@@ -1161,6 +1167,40 @@
                     <!-- الفيديو العلوي -->
                     <div id="lesson-video-top" data-inner-lesson="video" class="hidden mb-8"></div>
 
+                    <!-- شريط القارئ الصوتي الآلي للنص المفرغ (TTS Audio Reader) -->
+                    <div id="lesson-tts-bar" class="hidden mb-7 p-4 rounded-2xl bg-gradient-to-l from-islamic-900 to-islamic-800 text-white shadow-lg border border-amber-300/40 animate-fadeIn">
+                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                            <div class="flex items-center gap-3">
+                                <span id="tts-pulse-icon" class="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-300/40 text-amber-300 flex items-center justify-center">
+                                    <i class="fas fa-headphones-simple text-lg"></i>
+                                </span>
+                                <div>
+                                    <div class="flex items-center gap-2">
+                                        <strong class="text-sm font-black text-amber-200">القارئ الصوتي للنص المفرغ</strong>
+                                        <span id="tts-status-badge" class="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-md text-emerald-200">جاهز للقراءة</span>
+                                    </div>
+                                    <p id="tts-progress-text" class="text-[11px] font-bold text-white/75 mt-0.5">مناسب للاستماع للدرس أثناء المواصلات أو المشي دون استهلاك باقة الإنترنت</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 flex-wrap">
+                                <button id="tts-play-btn" onclick="app.startOrResumeTts()" class="bg-amber-400 hover:bg-amber-300 text-emerald-950 px-4 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 shadow">
+                                    <i class="fas fa-play"></i><span>تشغيل القراءة</span>
+                                </button>
+                                <button id="tts-pause-btn" onclick="app.pauseTts()" class="hidden bg-white/15 hover:bg-white/25 text-white px-3.5 py-2 rounded-xl font-black text-xs">
+                                    <i class="fas fa-pause ml-1"></i>إيقاف مؤقت
+                                </button>
+                                <button onclick="app.stopTts()" class="bg-rose-500/20 hover:bg-rose-500/35 border border-rose-300/30 text-rose-100 px-3 py-2 rounded-xl font-black text-xs" title="إيقاف وإعادة من البداية">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <select id="tts-rate-select" onchange="app.changeTtsRate(this.value)" class="bg-white/10 border border-white/20 text-white rounded-xl px-2.5 py-1.5 text-xs font-black">
+                                    <option value="0.9" class="text-slate-900">سرعة هادئة (0.9x)</option>
+                                    <option value="1" selected class="text-slate-900">سرعة طبيعية (1x)</option>
+                                    <option value="1.2" class="text-slate-900">سرعة متوسطة (1.2x)</option>
+                                    <option value="1.4" class="text-slate-900">سرعة سريعة (1.4x)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
                     <!-- فهرس عناصر الدرس السريع (يظهر تلقائياً إن وجد عناوين فرعية) -->
                     <div id="lesson-toc-box" data-inner-lesson="toc" class="hidden mb-7 p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80"></div>
 
@@ -1177,6 +1217,12 @@
                             <span id="lesson-note-status" class="text-xs font-black text-emerald-700">تُحفظ تلقائياً في ملفك الشخصي</span>
                         </div>
                         <textarea id="lesson-note" oninput="app.saveLessonNoteDebounced()" placeholder="اكتب هنا الفوائد، القواعد، أو الأسئلة التي استخرجتها من هذا الدرس لتجدها مجمعة في كشكول فوائدك..." class="w-full h-28 bg-white border border-amber-200 rounded-xl p-3.5 font-bold outline-none focus:border-islamic-600"></textarea>
+                        <div class="mt-3 pt-3 border-t border-amber-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold text-slate-500">
+                            <span>هل لاحظت خطأً مطبعياً أو إملائياً في التفريغ أو لديك ملاحظة علمية للإدارة؟</span>
+                            <button onclick="app.openReportIssueModal('lesson')" class="inline-flex items-center gap-1.5 text-islamic-800 hover:text-amber-700 font-black">
+                                <i class="fas fa-flag text-rose-500"></i> أبلغ عن خطأ مطبعي أو أرسل ملاحظة للإدارة
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -1236,6 +1282,7 @@
                     <div class="flex items-center gap-2">
                         <span id="quiz-timer" class="hidden exam-timer bg-red-50 text-red-600 px-3 py-2 rounded-xl text-xs font-black"><i class="fas fa-clock ml-1"></i><span id="quiz-timer-text">00:00</span></span>
                         <span id="quiz-correct-live" class="hidden sm:inline-flex bg-emerald-50 text-emerald-700 px-3 py-2 rounded-xl text-xs font-black">0 صحيحة</span>
+                        <button onclick="app.openReportIssueModal('quiz')" class="w-10 h-10 rounded-xl bg-amber-50 text-amber-700" title="الإبلاغ عن خطأ في السؤال"><i class="fas fa-flag"></i></button>
                         <button onclick="app.shareCurrent('quiz')" class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600"><i class="fas fa-share-nodes"></i></button>
                         <button onclick="app.closeQuiz()" class="w-10 h-10 rounded-xl bg-red-50 text-red-500" title="إنهاء"><i class="fas fa-xmark"></i></button>
                     </div>
@@ -1352,6 +1399,43 @@
                     </div>
                 </div>
                 <button onclick="app.saveProfileCustomization()" class="w-full bg-islamic-900 text-amber-200 py-3.5 rounded-2xl font-black shadow-lg mt-2">حفظ التعديلات</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- نافذة الإبلاغ عن خطأ مطبعي أو إرسال ملاحظة للإدارة -->
+    <div id="report-issue-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-[230] hidden items-center justify-center p-4" onclick="if(event.target===this) app.closeReportIssueModal()">
+        <div class="modern-card bg-white w-full max-w-lg rounded-[2rem] p-6 md:p-8 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="app.closeReportIssueModal()" class="absolute top-4 left-4 w-10 h-10 rounded-xl bg-slate-100 text-slate-500"><i class="fas fa-xmark"></i></button>
+            <div class="flex items-center gap-3 mb-4">
+                <span class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center text-xl shrink-0"><i class="fas fa-flag"></i></span>
+                <div>
+                    <span class="text-xs font-black text-amber-700">المساهمة في إتقان المحتوى الوقفي</span>
+                    <h3 class="text-xl font-black text-slate-900">أبلغ عن خطأ مطبعي أو أرسل ملاحظة</h3>
+                </div>
+            </div>
+            <p id="report-target-title" class="text-xs font-black text-islamic-800 bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl mb-4"></p>
+            <div class="space-y-3.5">
+                <div>
+                    <label class="block text-xs font-black text-slate-600 mb-1">نوع الملاحظة أو البلاغ</label>
+                    <select id="report-issue-type" class="w-full border-2 border-slate-200 p-3 rounded-xl font-black text-sm">
+                        <option value="typo">خطأ إملائي أو مطبعي في النص المفرغ</option>
+                        <option value="quiz_error">ملاحظة في سؤال أو إجابة بالاختبار</option>
+                        <option value="media_broken">عطل في رابط الفيديو أو الملف المرفق</option>
+                        <option value="suggestion">فائدة إضافية أو اقتراح لتحسين الدرس</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-black text-slate-600 mb-1">تفاصيل الملاحظة أو التصحيح</label>
+                    <textarea id="report-issue-text" placeholder="اكتب هنا الكلمة التي بها خطأ مطبعي وتصحيحها، أو ملاحظتك بالتفصيل..." class="w-full border-2 border-slate-200 p-3.5 rounded-xl font-bold h-28"></textarea>
+                </div>
+                <div>
+                    <label class="block text-xs font-black text-slate-600 mb-1">اسمك (اختياري)</label>
+                    <input id="report-issue-sender" type="text" placeholder="طالب علم" class="w-full border-2 border-slate-200 p-3 rounded-xl font-bold text-sm">
+                </div>
+                <button id="report-submit-btn" onclick="app.submitIssueReport()" class="w-full bg-islamic-900 hover:bg-islamic-800 text-amber-200 py-3.5 rounded-2xl font-black shadow-lg">
+                    <i class="fas fa-paper-plane ml-2"></i>إرسال الملاحظة لإدارة المنصة
+                </button>
             </div>
         </div>
     </div>
@@ -1557,7 +1641,228 @@
                 return Number(lesson?.durationMinutes) > 0 ? Number(lesson.durationMinutes) : mins;
             },
 
+
+            // ================= 1. محرك تطبيع النصوص العربية والبحث الذكي المتجاهل للتشكيل والهمزات =================
+            normalizeArabic: (str = '') => {
+                return String(str || '')
+                    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '') // إزالة جميع الحركات والتشكيل والمدود القرآنية
+                    .replace(/\u0640/g, '') // إزالة التطويل (ـ)
+                    .replace(/[أإآٱ]/g, 'ا') // توحيد الهمزات على الألف
+                    .replace(/ؤ/g, 'و')
+                    .replace(/ئ/g, 'ي')
+                    .replace(/ة/g, 'ه') // توحيد التاء المربوطة والهاء في البحث
+                    .replace(/ى/g, 'ي') // توحيد الألف المقصورة والياء
+                    .replace(/\s+/g, ' ')
+                    .trim()
+                    .toLowerCase();
+            },
+
+            extractSearchSnippet: (rawContent = '', rawQuery = '') => {
+                const cleanText = String(rawContent || '').replace(/\[[^\]]+\]/g, ' ').replace(/\s+/g, ' ').trim();
+                if (!cleanText) return '';
+                const normText = app.normalizeArabic(cleanText);
+                const normQ = app.normalizeArabic(rawQuery);
+                const idx = normText.indexOf(normQ);
+                if (idx < 0) return cleanText.slice(0, 130) + '...';
+                const start = Math.max(0, idx - 45);
+                const end = Math.min(cleanText.length, idx + normQ.length + 75);
+                return (start > 0 ? '...' : '') + cleanText.slice(start, end) + (end < cleanText.length ? '...' : '');
+            },
+
+            // ================= 2. القارئ الصوتي الآلي للنصوص المفرغة (TTS Audio Reader) =================
+            ttsState: { chunks: [], index: 0, playing: false, paused: false, rate: 1 },
+
+            toggleTtsReaderBar: () => {
+                const bar = document.getElementById('lesson-tts-bar');
+                if (!bar) return;
+                const willShow = bar.classList.contains('hidden');
+                bar.classList.toggle('hidden', !willShow);
+                if (!willShow) app.stopTts();
+            },
+
+            prepareTtsChunks: () => {
+                const raw = `${state.currentLesson?.title || ''}. ${String(state.currentLesson?.content || '')}`
+                    .replace(/\[\/[^\]]+\]/g, '. ')
+                    .replace(/\[[^\]]+\]/g, ' ')
+                    .replace(/[{}«»*]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                if (!raw) return [];
+                const parts = raw.split(/(?<=[.،؛!؟\n])\s+/);
+                const chunks = [];
+                let buf = '';
+                parts.forEach(p => {
+                    if ((buf + ' ' + p).length > 220 && buf) {
+                        chunks.push(buf.trim());
+                        buf = p;
+                    } else {
+                        buf = (buf ? buf + ' ' : '') + p;
+                    }
+                });
+                if (buf.trim()) chunks.push(buf.trim());
+                return chunks;
+            },
+
+            startOrResumeTts: () => {
+                if (!('speechSynthesis' in window)) {
+                    return alert('متصفحك الحالي لا يدعم القراءة الصوتية الآلية.');
+                }
+                if (app.ttsState.playing && app.ttsState.paused) {
+                    window.speechSynthesis.resume();
+                    app.ttsState.paused = false;
+                    app.updateTtsUI('يقرأ الآن...');
+                    return;
+                }
+                const chunks = app.prepareTtsChunks();
+                if (!chunks.length) return alert('لا يوجد نص مكتوب في هذا الدرس لقراءته صوتياً.');
+                window.speechSynthesis.cancel();
+                app.ttsState.chunks = chunks;
+                app.ttsState.index = 0;
+                app.ttsState.playing = true;
+                app.ttsState.paused = false;
+                app.speakCurrentTtsChunk();
+            },
+
+            speakCurrentTtsChunk: () => {
+                if (!app.ttsState.playing) return;
+                if (app.ttsState.index >= app.ttsState.chunks.length) {
+                    app.stopTts('اكتملت قراءة الدرس ✓');
+                    return;
+                }
+                const text = app.ttsState.chunks[app.ttsState.index];
+                const utter = new SpeechSynthesisUtterance(text);
+                utter.lang = 'ar-SA';
+                utter.rate = Number(app.ttsState.rate) || 1;
+                const voices = window.speechSynthesis.getVoices() || [];
+                const arVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
+                if (arVoice) utter.voice = arVoice;
+
+                app.updateTtsUI(`جاري القراءة (${app.ttsState.index + 1} من ${app.ttsState.chunks.length})`, text);
+                utter.onend = () => {
+                    if (!app.ttsState.playing) return;
+                    app.ttsState.index++;
+                    app.speakCurrentTtsChunk();
+                };
+                utter.onerror = () => {
+                    app.stopTts('توقفت القراءة');
+                };
+                window.speechSynthesis.speak(utter);
+            },
+
+            pauseTts: () => {
+                if (!('speechSynthesis' in window) || !app.ttsState.playing) return;
+                window.speechSynthesis.pause();
+                app.ttsState.paused = true;
+                app.updateTtsUI('متوقف مؤقتاً');
+            },
+
+            stopTts: (msg = 'جاهز للقراءة') => {
+                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+                app.ttsState.playing = false;
+                app.ttsState.paused = false;
+                app.ttsState.index = 0;
+                app.updateTtsUI(msg, 'مناسب للاستماع للدرس أثناء المواصلات أو المشي دون استهلاك باقة الإنترنت');
+            },
+
+            changeTtsRate: (val) => {
+                app.ttsState.rate = Number(val) || 1;
+                if (app.ttsState.playing && !app.ttsState.paused) {
+                    window.speechSynthesis.cancel();
+                    app.speakCurrentTtsChunk();
+                }
+            },
+
+            updateTtsUI: (statusText, snippet = '') => {
+                const badge = document.getElementById('tts-status-badge');
+                const prog = document.getElementById('tts-progress-text');
+                const playBtn = document.getElementById('tts-play-btn');
+                const pauseBtn = document.getElementById('tts-pause-btn');
+                if (badge) badge.innerText = statusText;
+                if (prog && snippet) prog.innerText = snippet.length > 110 ? snippet.slice(0, 110) + '...' : snippet;
+                if (playBtn && pauseBtn) {
+                    if (app.ttsState.playing && !app.ttsState.paused) {
+                        playBtn.classList.add('hidden');
+                        pauseBtn.classList.remove('hidden');
+                    } else {
+                        playBtn.classList.remove('hidden');
+                        playBtn.innerHTML = app.ttsState.paused
+                            ? '<i class="fas fa-play"></i><span>استئناف القراءة</span>'
+                            : '<i class="fas fa-play"></i><span>تشغيل القراءة</span>';
+                        pauseBtn.classList.add('hidden');
+                    }
+                }
+            },
+
+            // ================= 3. نظام الإبلاغ عن خطأ مطبعي أو إرسال ملاحظة للإدارة =================
+            reportContextType: 'lesson',
+
+            openReportIssueModal: (contextType = 'lesson') => {
+                app.reportContextType = contextType;
+                const titleEl = document.getElementById('report-target-title');
+                const typeSel = document.getElementById('report-issue-type');
+                const senderIn = document.getElementById('report-issue-sender');
+                if (senderIn && !senderIn.value) senderIn.value = app.getStudentDisplayName();
+
+                if (contextType === 'quiz' && state.quizData) {
+                    const curQ = state.quizData.questions?.[state.qIdx];
+                    if (titleEl) titleEl.innerText = `الاختبار: ${state.quizData.name || 'اختبار'} — السؤال رقم ${(state.qIdx || 0) + 1}`;
+                    if (typeSel) typeSel.value = 'quiz_error';
+                    const txt = document.getElementById('report-issue-text');
+                    if (txt && curQ) txt.placeholder = `ملاحظتك حول السؤال: «${curQ.text.slice(0, 60)}...»`;
+                } else if (state.currentLesson) {
+                    if (titleEl) titleEl.innerText = `الدرس: ${state.currentLesson.title} (${state.currentBook?.title || state.currentChap?.title || ''})`;
+                    if (typeSel) typeSel.value = 'typo';
+                }
+                const m = document.getElementById('report-issue-modal');
+                m?.classList.remove('hidden');
+                m?.classList.add('flex');
+            },
+
+            closeReportIssueModal: () => {
+                const m = document.getElementById('report-issue-modal');
+                m?.classList.add('hidden');
+                m?.classList.remove('flex');
+            },
+
+            submitIssueReport: async () => {
+                const text = (document.getElementById('report-issue-text')?.value || '').trim();
+                const issueType = document.getElementById('report-issue-type')?.value || 'typo';
+                const sender = (document.getElementById('report-issue-sender')?.value || '').trim() || app.getStudentDisplayName();
+                if (text.length < 3) return alert('يرجى كتابة تفاصيل الخطأ المطبعي أو الملاحظة قبل الإرسال.');
+                const btn = document.getElementById('report-submit-btn');
+                if (btn) { btn.disabled = true; btn.innerText = 'جاري الإرسال...'; }
+                try {
+                    const id = 'rep_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+                    const payload = {
+                        id,
+                        issueType,
+                        text,
+                        senderName: sender,
+                        senderEmail: state.auth.user?.email || '',
+                        contextType: app.reportContextType,
+                        lessonId: state.currentLesson?.id || null,
+                        lessonTitle: state.currentLesson?.title || '',
+                        bookId: state.currentBook?.id || null,
+                        bookTitle: state.currentBook?.title || '',
+                        quizId: state.quizData?.id || state.currentLesson?.quizId || null,
+                        quizTitle: state.quizData?.name || '',
+                        questionIndex: app.reportContextType === 'quiz' ? state.qIdx : null,
+                        status: 'open',
+                        createdAt: Date.now()
+                    };
+                    await dbRef.child(`reports/${id}`).set(payload);
+                    document.getElementById('report-issue-text').value = '';
+                    app.closeReportIssueModal();
+                    alert('جزاك الله خيراً! تم إرسال ملاحظتك بنجاح إلى لوحة الإدارة لمراجعتها.');
+                } catch (e) {
+                    alert('تعذر إرسال الملاحظة حالياً، تأكد من اتصالك بالإنترنت.');
+                } finally {
+                    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane ml-2"></i>إرسال الملاحظة لإدارة المنصة'; }
+                }
+            },
+
             stopLessonVideos: () => {
+                app.stopTts();
                 state.floatingVideoActive = false;
                 ['lesson-video-top', 'lesson-video-bottom'].forEach(id => {
                     const el = document.getElementById(id);
@@ -3230,7 +3535,7 @@
             renderNotebook: () => {
                 const box = document.getElementById('account-notebook-list');
                 if (!box) return;
-                const q = (document.getElementById('notebook-search')?.value || '').trim().toLowerCase();
+                const q = app.normalizeArabic(document.getElementById('notebook-search')?.value || '');
                 const entries = Object.entries(state.local.notes || {})
                     .filter(([, text]) => String(text || '').trim().length > 0)
                     .map(([lessonId, text]) => {
@@ -3239,7 +3544,7 @@
                         const book = chap?.bookId ? state.db.books.find(b => b.id === chap.bookId) : null;
                         return { lessonId, text, lessonTitle: lesson?.title || 'درس علمي', bookTitle: book?.title || chap?.title || 'المكتبة العلمية' };
                     })
-                    .filter(item => !q || item.text.toLowerCase().includes(q) || item.lessonTitle.toLowerCase().includes(q) || item.bookTitle.toLowerCase().includes(q));
+                    .filter(item => !q || app.normalizeArabic(`${item.text} ${item.lessonTitle} ${item.bookTitle}`).includes(q));
 
                 box.innerHTML = entries.length ? entries.map(item => `<div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80">
                     <div class="flex items-center justify-between gap-2 mb-2">
@@ -3850,28 +4155,33 @@
 
             handleSearch: (mobile = false) => {
                 const input = document.getElementById(mobile ? 'mobile-search-input' : 'search-input');
-                const query = (input?.value || '').trim().toLowerCase();
+                const rawQuery = (input?.value || '').trim();
+                const query = app.normalizeArabic(rawQuery);
                 if (!query) { if (!document.getElementById('search-view').classList.contains('hidden')) app.showSection('landing'); return; }
                 const results = [];
                 state.db.books.filter(b => app.effectiveAccess('book', b) !== 'hidden').forEach(b => {
-                    const hay = `${b.title || ''} ${b.author || ''} ${b.description || ''}`.toLowerCase();
-                    if (hay.includes(query)) results.push({ type: app.contentTypeMeta(app.inferContentType(b)).label, title: b.title, sub: b.author || '', action: `app.openBook('${b.id}')`, icon: 'fa-book-open', color: 'text-amber-600' });
+                    const hay = app.normalizeArabic(`${b.title || ''} ${b.author || ''} ${b.description || ''}`);
+                    if (hay.includes(query)) results.push({ type: app.contentTypeMeta(app.inferContentType(b)).label, title: b.title, sub: b.author || '', snippet: b.description || '', action: `app.openBook('${b.id}')`, icon: 'fa-book-open', color: 'text-amber-600' });
                 });
                 state.db.lessons.filter(l => app.effectiveAccess('lesson', l) !== 'hidden').forEach(l => {
-                    if ((l.title || '').toLowerCase().includes(query) || (l.content || '').toLowerCase().includes(query)) {
-                        results.push({ type: 'درس مشروح', title: l.title, sub: `⏱️ ${app.estimateReadingMinutes(l)} دقائق`, action: `app.openLesson('${l.id}')`, icon: 'fa-file-lines', color: 'text-emerald-700' });
+                    const normTitle = app.normalizeArabic(l.title || '');
+                    const normContent = app.normalizeArabic(l.content || '');
+                    if (normTitle.includes(query) || normContent.includes(query)) {
+                        const snippet = normContent.includes(query) ? app.extractSearchSnippet(l.content, rawQuery) : '';
+                        results.push({ type: 'درس مشروح', title: l.title, sub: `⏱️ ${app.estimateReadingMinutes(l)} دقائق`, snippet, action: `app.openLesson('${l.id}')`, icon: 'fa-file-lines', color: 'text-emerald-700' });
                     }
                 });
                 state.db.categories.filter(c => app.effectiveAccess('category', c) !== 'hidden').forEach(c => {
-                    if ((c.name || '').toLowerCase().includes(query)) results.push({ type: 'قسم علمي', title: c.name, sub: c.description || '', action: `app.openCategory('${c.id}')`, icon: 'fa-layer-group', color: 'text-indigo-600' });
+                    if (app.normalizeArabic(`${c.name || ''} ${c.description || ''}`).includes(query)) results.push({ type: 'قسم علمي', title: c.name, sub: c.description || '', snippet: '', action: `app.openCategory('${c.id}')`, icon: 'fa-layer-group', color: 'text-indigo-600' });
                 });
                 state.db.quizzes.filter(q => app.effectiveAccess('quiz', q) !== 'hidden').forEach(q => {
-                    if ((q.name || '').toLowerCase().includes(query)) results.push({ type: 'اختبار تثبيت', title: q.name || 'اختبار', sub: `${q.questions?.length || ''} سؤال`, action: `app.startQuiz('${q.id}','landing')`, icon: 'fa-clipboard-question', color: 'text-rose-600' });
+                    const qQuestionsText = (q.questions || []).map(x => x?.text || '').join(' ');
+                    if (app.normalizeArabic(`${q.name || ''} ${qQuestionsText}`).includes(query)) results.push({ type: 'اختبار تثبيت', title: q.name || 'اختبار', sub: `${q.questions?.length || ''} سؤال`, snippet: '', action: `app.startQuiz('${q.id}','landing')`, icon: 'fa-clipboard-question', color: 'text-rose-600' });
                 });
                 const badge = document.getElementById('search-count-badge');
-                if (badge) badge.innerText = `${results.length} نتيجة`;
+                if (badge) badge.innerText = `${results.length} نتيجة (بحث ذكي يتجاهل التشكيل والهمزات)`;
                 document.getElementById('search-results').innerHTML = results.length
-                    ? results.slice(0, 35).map(r => `<div onclick="${r.action}" class="modern-card p-4 md:p-5 rounded-2xl flex justify-between items-center cursor-pointer hover:border-amber-400 transition"><div class="flex items-center gap-4 min-w-0"><span class="w-11 h-11 rounded-xl bg-slate-50 flex items-center justify-center shrink-0"><i class="fas ${r.icon} ${r.color} text-xl"></i></span><div class="min-w-0"><h4 class="font-black text-base md:text-lg text-slate-800 truncate">${app.escapeHtml(r.title)}</h4><span class="text-xs font-bold text-slate-400">${r.type} ${r.sub ? '• ' + app.escapeHtml(r.sub) : ''}</span></div></div><i class="fas fa-chevron-left text-slate-300"></i></div>`).join('')
+                    ? results.slice(0, 40).map(r => `<div onclick="${r.action}" class="modern-card p-4 md:p-5 rounded-2xl flex justify-between items-center cursor-pointer hover:border-amber-400 transition"><div class="flex items-start gap-4 min-w-0"><span class="w-11 h-11 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 mt-0.5"><i class="fas ${r.icon} ${r.color} text-xl"></i></span><div class="min-w-0"><h4 class="font-black text-base md:text-lg text-slate-800 truncate">${app.escapeHtml(r.title)}</h4><span class="text-xs font-bold text-slate-400 block">${r.type} ${r.sub ? '• ' + app.escapeHtml(r.sub) : ''}</span>${r.snippet ? `<p class="text-xs font-bold text-islamic-800 bg-amber-50/70 border border-amber-200/70 px-3 py-1.5 rounded-xl mt-2 line-clamp-2">${app.escapeHtml(r.snippet)}</p>` : ''}</div></div><i class="fas fa-chevron-left text-slate-300 shrink-0 mr-2"></i></div>`).join('')
                     : `<div class="text-center p-10 modern-card rounded-3xl"><p class="font-bold text-slate-500">لا توجد نتائج مطابقة لبحثك.</p></div>`;
                 app.showSection('search-view');
             },
