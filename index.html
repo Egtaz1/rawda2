@@ -1703,24 +1703,52 @@
                 preferredEngine: 'auto', // 'auto' | 'cloud' | 'native'
                 activeEngine: 'native',
                 audioEl: null,
-                watchdog: null,
                 sessionId: 0
             },
 
+            isMobileDevice: () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || ''),
+
             initVoices: () => {
                 if ('speechSynthesis' in window) {
-                    window.speechSynthesis.getVoices();
-                    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+                    try {
+                        window.speechSynthesis.getVoices();
+                        window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+                    } catch (e) {}
                 }
             },
 
             getBestArabicVoice: () => {
                 if (!('speechSynthesis' in window)) return null;
                 const voices = window.speechSynthesis.getVoices() || [];
-                return voices.find(v => /ar/i.test(v.lang) && /natural|online|google|microsoft|hoda|salma|shakir|naayf|zariyah|maged|tarik/i.test(v.name))
-                    || voices.find(v => /ar/i.test(v.lang))
-                    || voices.find(v => /arabic|عربي/i.test(v.name))
-                    || null;
+                // مطابقة صارمة للغة العربية فقط (تبدأ بـ ar) لمنع اختيار أي صوت صيني أو أجنبي بالخطأ
+                const arVoices = voices.filter(v => v.lang && /^ar(-|_|$)/i.test(v.lang.trim()));
+                if (!arVoices.length) return null;
+                return arVoices.find(v => /natural|online|google|microsoft|hoda|salma|shakir|naayf|zariyah|maged|tarik/i.test(v.name || ''))
+                    || arVoices[0];
+            },
+
+            ensureNoReferrerForAudio: () => {
+                let meta = document.getElementById('tts-referrer-meta');
+                if (!meta) {
+                    meta = document.createElement('meta');
+                    meta.id = 'tts-referrer-meta';
+                    meta.name = 'referrer';
+                    document.head.appendChild(meta);
+                }
+                meta.content = 'no-referrer';
+            },
+
+            getOrCreateCloudAudioElement: () => {
+                if (!app.ttsState.audioEl) {
+                    const a = document.createElement('audio');
+                    a.id = 'tts-cloud-audio-player';
+                    a.preload = 'auto';
+                    a.setAttribute('referrerpolicy', 'no-referrer');
+                    a.style.display = 'none';
+                    document.body.appendChild(a);
+                    app.ttsState.audioEl = a;
+                }
+                return app.ttsState.audioEl;
             },
 
             toggleTtsReaderBar: () => {
@@ -1730,7 +1758,7 @@
                 const willShow = bar.classList.contains('hidden');
                 bar.classList.toggle('hidden', !willShow);
                 if (willShow) {
-                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                    app.ttsState.chunks = app.prepareTtsChunks(150);
                     app.ttsState.index = 0;
                     app.syncTtsSlider();
                     app.updateTtsUI('جاهز للقراءة', app.ttsState.chunks[0] || 'اضغط تشغيل للاستماع لنص الدرس');
@@ -1739,7 +1767,7 @@
                 }
             },
 
-            prepareTtsChunks: (maxLen = 165) => {
+            prepareTtsChunks: (maxLen = 150) => {
                 const raw = `${state.currentLesson?.title || ''}. ${String(state.currentLesson?.content || '')}`
                     .replace(/\[\/[^\]]+\]/g, '. ')
                     .replace(/\[[^\]]+\]/g, ' ')
@@ -1783,9 +1811,8 @@
                 if (counter) counter.innerText = `الفقرة ${cur} من ${total}`;
             },
 
-            cleanupTtsEngines: () => {
+            stopActiveOutputOnly: () => {
                 app.ttsState.sessionId++;
-                clearTimeout(app.ttsState.watchdog);
                 if ('speechSynthesis' in window) {
                     try { window.speechSynthesis.cancel(); } catch (e) {}
                 }
@@ -1794,48 +1821,53 @@
                         app.ttsState.audioEl.onended = null;
                         app.ttsState.audioEl.onerror = null;
                         app.ttsState.audioEl.pause();
-                        app.ttsState.audioEl.src = '';
                     } catch (e) {}
-                    app.ttsState.audioEl = null;
                 }
             },
 
             resolveActiveEngine: () => {
                 if (app.ttsState.preferredEngine === 'cloud') return 'cloud';
                 if (app.ttsState.preferredEngine === 'native') return 'native';
-                // في الوضع التلقائي: إذا لم يجد صوتاً عربياً مثبتاً في الويندوز على اللابتوب يستخدم القارئ السحابي مباشرة
-                return app.getBestArabicVoice() ? 'native' : 'cloud';
+                // في الوضع التلقائي:
+                // 1) إذا وجدنا صوتاً عربياً مؤكداً في المتصفح نستخدمه
+                const arVoice = app.getBestArabicVoice();
+                if (arVoice) return 'native';
+                // 2) على الموبايل حتى لو كانت قائمة getVoices فارغة في أول ضغطة فإن محرك النظام يدعم ar-SA مباشرة
+                if (app.isMobileDevice() && 'speechSynthesis' in window) return 'native';
+                // 3) على اللابتوب إذا لم يكن هناك صوت عربي مثبت في الويندوز، نستخدم القارئ السحابي العربي مباشرة
+                return 'cloud';
             },
 
+            // هام جداً: يتم استدعاء النطق مباشرة وبنفس اللحظة داخل حدث الضغطة (بدون setTimeout) حتى لا يمنعه المتصفح!
             startOrResumeTts: () => {
                 app.initVoices();
                 if (!app.ttsState.chunks.length) {
-                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                    app.ttsState.chunks = app.prepareTtsChunks(150);
                 }
                 if (!app.ttsState.chunks.length) return alert('لا يوجد نص مكتوب في هذا الدرس لقراءته صوتياً.');
 
-                // إذا كان متوقفاً مؤقتاً: في الموبايل دالة speechSynthesis.resume() معطوبة، لذلك نعيد تشغيل الفقرة الحالية المحفوظة في index مباشرة وبشكل مضمون 100%!
+                // حالة الاستئناف بعد الإيقاف المؤقت
                 if (app.ttsState.paused) {
                     app.ttsState.paused = false;
                     app.ttsState.playing = true;
-                    if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl && app.ttsState.audioEl.src) {
+                    // إذا كان يعمل على القارئ السحابي وتوقف في منتصف جملة، يكملها فوراً
+                    if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl && app.ttsState.audioEl.src && app.ttsState.audioEl.currentTime > 0 && !app.ttsState.audioEl.ended) {
                         app.updateTtsUI('يقرأ الآن...', app.ttsState.chunks[app.ttsState.index] || '');
                         app.ttsState.audioEl.play().catch(() => app.speakCurrentTtsChunk());
                         return;
                     }
-                    app.cleanupTtsEngines();
+                    // على الموبايل واللابتوب: نبدأ فوراً من نفس الفقرة المحفوظة في app.ttsState.index بدون العودة للبداية!
                     app.ttsState.activeEngine = app.resolveActiveEngine();
-                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                    app.speakCurrentTtsChunk();
                     return;
                 }
 
-                // بدء تشغيل جديد من الموضع الحالي للمؤشر (أو من البداية إذا انتهى الدرس)
+                // بدء تشغيل من الموضع الحالي للمؤشر (أو من الصفر إذا كان قد انتهى)
                 if (app.ttsState.index >= app.ttsState.chunks.length) app.ttsState.index = 0;
-                app.cleanupTtsEngines();
                 app.ttsState.playing = true;
                 app.ttsState.paused = false;
                 app.ttsState.activeEngine = app.resolveActiveEngine();
-                setTimeout(() => app.speakCurrentTtsChunk(), 70);
+                app.speakCurrentTtsChunk();
             },
 
             speakCurrentTtsChunk: () => {
@@ -1844,62 +1876,46 @@
                     app.stopTts('اكتملت قراءة الدرس ✓');
                     return;
                 }
+                app.stopActiveOutputOnly();
                 const mySession = app.ttsState.sessionId;
                 const text = app.ttsState.chunks[app.ttsState.index];
                 app.syncTtsSlider();
-                app.updateTtsUI('يقرأ الآن...', text);
+                app.updateTtsUI(app.ttsState.activeEngine === 'cloud' ? 'يقرأ الآن (سحابي عربي)...' : 'يقرأ الآن (صوت الجهاز)...', text);
 
                 if (app.ttsState.activeEngine === 'cloud') {
                     app.speakChunkViaCloudAudio(text, mySession);
                     return;
                 }
 
+                // النطق عبر محرك الجهاز المحلي (Web Speech API) بشكل متزامن ومباشر
                 try {
                     const utter = new SpeechSynthesisUtterance(text);
                     window.__activeTtsUtterance = utter;
                     const arVoice = app.getBestArabicVoice();
                     if (arVoice) {
                         utter.voice = arVoice;
-                        utter.lang = arVoice.lang || 'ar-SA';
+                        utter.lang = arVoice.lang;
                     } else {
                         utter.lang = 'ar-SA';
                     }
                     utter.rate = Number(app.ttsState.rate) || 1;
 
-                    let started = false;
-                    utter.onstart = () => {
-                        if (mySession !== app.ttsState.sessionId) return;
-                        started = true;
-                        clearTimeout(app.ttsState.watchdog);
-                    };
                     utter.onend = () => {
                         if (mySession !== app.ttsState.sessionId) return;
-                        clearTimeout(app.ttsState.watchdog);
                         if (!app.ttsState.playing || app.ttsState.paused) return;
                         app.ttsState.index++;
                         app.speakCurrentTtsChunk();
                     };
                     utter.onerror = (ev) => {
                         if (mySession !== app.ttsState.sessionId) return;
-                        clearTimeout(app.ttsState.watchdog);
                         if (!app.ttsState.playing || app.ttsState.paused) return;
                         if (ev && (ev.error === 'canceled' || ev.error === 'interrupted')) return;
-                        // التحويل التلقائي للقارئ السحابي إذا فشل صوت الويندوز على اللابتوب
+                        // إذا فشل محرك الويندوز المحلي، يتحول فوراً للقارئ السحابي العربي
                         app.ttsState.activeEngine = 'cloud';
                         app.speakChunkViaCloudAudio(text, mySession);
                     };
 
                     window.speechSynthesis.speak(utter);
-
-                    // مراقب ذكي للابتوب: إذا لم يبدأ صوت الويندوز خلال 1.1 ثانية يتحول فوراً للقارئ السحابي
-                    clearTimeout(app.ttsState.watchdog);
-                    app.ttsState.watchdog = setTimeout(() => {
-                        if (mySession === app.ttsState.sessionId && app.ttsState.playing && !app.ttsState.paused && !started) {
-                            try { window.speechSynthesis.cancel(); } catch (e) {}
-                            app.ttsState.activeEngine = 'cloud';
-                            app.speakChunkViaCloudAudio(text, mySession);
-                        }
-                    }, 1100);
                 } catch (e) {
                     app.ttsState.activeEngine = 'cloud';
                     app.speakChunkViaCloudAudio(text, mySession);
@@ -1908,40 +1924,63 @@
 
             speakChunkViaCloudAudio: (text, mySession) => {
                 if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
+                app.ensureNoReferrerForAudio();
                 const encoded = encodeURIComponent(text);
+                // محركات نطق عربية فصحى 100% فقط (تمت إزالة أي محرك أجنبي/صيني نهائياً)
                 const urls = [
                     `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encoded}`,
-                    `https://dict.youdao.com/dictvoice?le=ar&audio=${encoded}`
+                    `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=gtx&tl=ar&dt=t&q=${encoded}`
                 ];
                 let urlIdx = 0;
+                const audio = app.getOrCreateCloudAudioElement();
+
                 const tryPlay = () => {
                     if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
                     if (urlIdx >= urls.length) {
-                        app.pauseTts('تعذر تشغيل الصوت السحابي — جرب تغيير المحرك');
+                        // إذا لم ينجح السحابي نجرب محرك الجهاز المحلي كبديل أخير
+                        if (app.ttsState.preferredEngine !== 'cloud' && 'speechSynthesis' in window) {
+                            app.ttsState.activeEngine = 'native';
+                            try {
+                                const u = new SpeechSynthesisUtterance(text);
+                                u.lang = 'ar-SA';
+                                u.rate = Number(app.ttsState.rate) || 1;
+                                u.onend = () => {
+                                    if (mySession !== app.ttsState.sessionId || !app.ttsState.playing || app.ttsState.paused) return;
+                                    app.ttsState.index++;
+                                    app.speakCurrentTtsChunk();
+                                };
+                                window.speechSynthesis.speak(u);
+                                return;
+                            } catch (e) {}
+                        }
+                        app.pauseTts('تعذر تحميل الصوت — تأكد من الاتصال بالإنترنت أو اختر (صوت الجهاز المحلي)');
                         return;
                     }
-                    const audio = new Audio(urls[urlIdx++]);
+                    audio.onended = null;
+                    audio.onerror = null;
+                    audio.src = urls[urlIdx++];
                     audio.playbackRate = Number(app.ttsState.rate) || 1;
-                    app.ttsState.audioEl = audio;
                     audio.onended = () => {
                         if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
                         app.ttsState.index++;
                         app.speakCurrentTtsChunk();
                     };
                     audio.onerror = () => tryPlay();
-                    audio.play().catch(() => tryPlay());
+                    const playPromise = audio.play();
+                    if (playPromise && typeof playPromise.catch === 'function') {
+                        playPromise.catch(() => tryPlay());
+                    }
                 };
                 tryPlay();
             },
 
-            pauseTts: (customMsg = 'متوقف مؤقتاً (اضغط استئناف للمتابعة من نفس الموضع)') => {
+            pauseTts: (customMsg = 'متوقف مؤقتاً (اضغط استئناف للمتابعة من نفس الفقرة)') => {
                 if (!app.ttsState.playing) return;
                 app.ttsState.paused = true;
-                clearTimeout(app.ttsState.watchdog);
                 if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl) {
                     try { app.ttsState.audioEl.pause(); } catch (e) {}
                 } else {
-                    // على الموبايل واللابتوب: نلغي النطق الحالي مع الاحتفاظ برقم الجملة الحالية (app.ttsState.index) لكي يعمل زر الاستئناف بنسبة 100% دون أن يتجمد أو يعود للأول!
+                    // نوقف الصوت الحالي مع الحفاظ التام على رقم الفقرة الحالية (app.ttsState.index) ليستأنف منها فوراً
                     app.ttsState.sessionId++;
                     if ('speechSynthesis' in window) {
                         try { window.speechSynthesis.cancel(); } catch (e) {}
@@ -1951,10 +1990,10 @@
                 app.updateTtsUI(customMsg, app.ttsState.chunks[app.ttsState.index] || '');
             },
 
-            // التقديم والتأخير بالفقرات (زر تقديم ⏭️ وزر تأخير ⏮️)
+            // التقديم والتأخير بالفقرات (زر تقديم ⏭️ وزر تأخير ⏮️) يعمل فوراً وبنفس الضغطة
             stepTts: (delta = 1) => {
                 if (!app.ttsState.chunks.length) {
-                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                    app.ttsState.chunks = app.prepareTtsChunks(150);
                 }
                 if (!app.ttsState.chunks.length) return;
                 const nextIdx = Math.max(0, Math.min(app.ttsState.chunks.length - 1, app.ttsState.index + delta));
@@ -1964,7 +2003,7 @@
             // القفز لأي موضع عبر شريط التمرير التفاعلي (Seek Slider)
             seekTtsTo: (targetIdx, commitSpeak = true) => {
                 if (!app.ttsState.chunks.length) {
-                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                    app.ttsState.chunks = app.prepareTtsChunks(150);
                 }
                 if (!app.ttsState.chunks.length) return;
                 const idx = Math.max(0, Math.min(app.ttsState.chunks.length - 1, parseInt(targetIdx) || 0));
@@ -1977,11 +2016,10 @@
                     return;
                 }
                 if (app.ttsState.playing && !app.ttsState.paused) {
-                    app.cleanupTtsEngines();
-                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                    app.speakCurrentTtsChunk();
                 } else {
-                    if (app.ttsState.audioEl) { app.ttsState.audioEl.src = ''; app.ttsState.audioEl = null; }
-                    app.updateTtsUI(app.ttsState.paused ? 'متوقف مؤقتاً عند هذا الموضع' : 'جاهز للقراءة من هذا الموضع', previewText);
+                    if (app.ttsState.audioEl) { try { app.ttsState.audioEl.pause(); app.ttsState.audioEl.currentTime = 0; } catch (e) {} }
+                    app.updateTtsUI(app.ttsState.paused ? 'متوقف مؤقتاً عند هذه الفقرة' : 'جاهز للقراءة من هذه الفقرة', previewText);
                 }
             },
 
@@ -1989,7 +2027,10 @@
                 app.ttsState.playing = false;
                 app.ttsState.paused = false;
                 app.ttsState.index = 0;
-                app.cleanupTtsEngines();
+                app.stopActiveOutputOnly();
+                if (app.ttsState.audioEl) {
+                    try { app.ttsState.audioEl.currentTime = 0; } catch (e) {}
+                }
                 app.syncTtsSlider();
                 app.updateTtsUI(msg, app.ttsState.chunks[0] || 'اضغط تشغيل للاستماع لنص الدرس');
             },
@@ -1998,8 +2039,7 @@
                 app.ttsState.preferredEngine = mode || 'auto';
                 app.ttsState.activeEngine = app.resolveActiveEngine();
                 if (app.ttsState.playing && !app.ttsState.paused) {
-                    app.cleanupTtsEngines();
-                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                    app.speakCurrentTtsChunk();
                 }
             },
 
@@ -2009,8 +2049,7 @@
                     if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl) {
                         app.ttsState.audioEl.playbackRate = app.ttsState.rate;
                     } else {
-                        app.cleanupTtsEngines();
-                        setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                        app.speakCurrentTtsChunk();
                     }
                 }
             },
@@ -2029,7 +2068,7 @@
                     } else {
                         playBtn.classList.remove('hidden');
                         playBtn.innerHTML = (app.ttsState.paused || app.ttsState.index > 0)
-                            ? '<i class="fas fa-play"></i><span>استئناف من هذا الموضع</span>'
+                            ? '<i class="fas fa-play"></i><span>استئناف من هذه الفقرة</span>'
                             : '<i class="fas fa-play"></i><span>تشغيل القراءة</span>';
                         pauseBtn.classList.add('hidden');
                     }
@@ -3666,1037 +3705,4 @@
                 }).join('');
                 const w = window.open('', '_blank', 'width=950,height=700');
                 if (!w) return alert('اسمح بالنوافذ المنبثقة لطباعة خريطة المذاكرة.');
-                w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${app.escapeHtml(plan.title || 'خريطة المذاكرة')}</title><style>body{font-family:Cairo,Arial,sans-serif;padding:30px;color:#1b2823}h1{color:#043927}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{border:1px solid #cbd5e1;padding:10px;text-align:right}th{background:#043927;color:#fff}</style></head><body><h1>${app.escapeHtml(plan.title || 'خريطة المذاكرة')}</h1><p>طالب العلم: ${app.escapeHtml(app.getStudentDisplayName())} • تاريخ الختم المستهدف: ${plan.examDate}</p><table><thead><tr><th>المحطة</th><th>التاريخ</th><th>الدروس والاختبارات المطلوبة</th><th>الإنجاز</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>window.print()<\/script></body></html>`);
-                w.document.close();
-            },
-
-            clearStudyPlan: () => {
-                if (!state.local.studyPlan) return;
-                if (!confirm('هل تود حذف خريطة المذاكرة الحالية؟')) return;
-                state.local.studyPlan = null;
-                app.saveLocalState(true);
-                app.renderRoadmapView();
-                app.renderDashboard();
-            },
-
-            // ================= الملف الشخصي الاحترافي لطالب العلم =================
-            getStudentDisplayName: () => state.local.profileMeta?.name || state.auth.profile?.name || state.auth.user?.displayName || 'طالب علم',
-
-            getLevelInfo: () => {
-                const pts = (state.local.completedLessons?.length || 0) * 15 + (state.local.quizHistory?.length || 0) * 10 + Object.keys(state.local.notes || {}).length * 5;
-                const levels = [
-                    ['طالب مستجد', 0],
-                    ['باحث مثابر', 60],
-                    ['ملازم لحلقات العلم', 180],
-                    ['متقن للأبواب والمتون', 400],
-                    ['فارس في طلب العلم', 800]
-                ];
-                let idx = 0;
-                for (let i = 0; i < levels.length; i++) if (pts >= levels[i][1]) idx = i;
-                const cur = levels[idx], next = levels[idx + 1];
-                return {
-                    index: idx + 1,
-                    name: cur[0],
-                    points: pts,
-                    next: next?.[1] || cur[1] + 400,
-                    base: cur[1],
-                    progress: next ? Math.min(100, Math.round(((pts - cur[1]) / (next[1] - cur[1])) * 100)) : 100
-                };
-            },
-
-            getBadges: () => {
-                const c = state.local.completedLessons?.length || 0;
-                const q = state.local.quizHistory?.length || 0;
-                const best = q ? Math.max(...state.local.quizHistory.map(x => Number(x.percentage) || 0)) : 0;
-                const st = app.calcStreak();
-                const notesCount = Object.keys(state.local.notes || {}).filter(k => state.local.notes[k]?.trim()).length;
-                return [
-                    { name: 'فاتحة الطلب (أول درس)', ok: c >= 1, icon: 'fa-seedling' },
-                    { name: 'همة طالب علم (10 دروس)', ok: c >= 10, icon: 'fa-book-open' },
-                    { name: 'متقن الاختبارات (5 اختبارات)', ok: q >= 5, icon: 'fa-clipboard-check' },
-                    { name: 'الدرجة الكاملة (100%)', ok: best >= 100, icon: 'fa-star' },
-                    { name: 'مقيّد الفوائد (كشكول نشط)', ok: notesCount >= 3, icon: 'fa-feather-pointed' },
-                    { name: 'صاحب الورد الدائم (7 أيام)', ok: st >= 7, icon: 'fa-fire' }
-                ];
-            },
-
-            openEditProfileModal: () => {
-                const meta = state.local.profileMeta || {};
-                document.getElementById('prof-edit-name').value = app.getStudentDisplayName();
-                document.getElementById('prof-edit-bio').value = meta.bio || '';
-                document.getElementById('prof-edit-specialty').value = meta.specialty || 'محب للعلوم الشرعية والعربية';
-                document.getElementById('prof-edit-daily-goal').value = String(meta.dailyGoal || 1);
-                const m = document.getElementById('edit-profile-modal');
-                m?.classList.remove('hidden'); m?.classList.add('flex');
-            },
-            closeEditProfileModal: () => {
-                const m = document.getElementById('edit-profile-modal');
-                m?.classList.add('hidden'); m?.classList.remove('flex');
-            },
-            saveProfileCustomization: async () => {
-                const name = (document.getElementById('prof-edit-name')?.value || '').trim() || 'طالب علم';
-                const bio = (document.getElementById('prof-edit-bio')?.value || '').trim();
-                const specialty = document.getElementById('prof-edit-specialty')?.value || 'محب للعلوم الشرعية والعربية';
-                const dailyGoal = Math.max(1, parseInt(document.getElementById('prof-edit-daily-goal')?.value || 1));
-                state.local.profileMeta = { name, bio, specialty, dailyGoal };
-                if (state.auth.user) {
-                    try {
-                        await usersRef.child(`${state.auth.user.uid}/profile`).update({ name, bio, specialty, dailyGoal });
-                    } catch (e) {}
-                }
-                app.saveLocalState(true);
-                app.renderAuthUI();
-                app.renderAccount();
-                app.closeEditProfileModal();
-            },
-
-            switchProfileShelf: (shelf = 'inprogress') => {
-                state.activeProfileShelf = shelf;
-                document.querySelectorAll('.profile-shelf-btn').forEach(btn => {
-                    const active = btn.dataset.shelf === shelf;
-                    btn.className = `profile-shelf-btn px-4 py-2 rounded-xl text-xs font-black ${active ? 'bg-islamic-900 text-white shadow' : 'bg-slate-100 text-slate-600'}`;
-                });
-                app.renderProfileShelf();
-            },
-
-            renderProfileShelf: () => {
-                const box = document.getElementById('profile-shelf-content');
-                if (!box) return;
-                const books = app.sortItems(state.db.books.filter(b => app.effectiveAccess('book', b) !== 'hidden'));
-                if (state.activeProfileShelf === 'inprogress') {
-                    const list = books.filter(b => { const p = app.getBookProgress(b); return p.done > 0 && p.percent < 100; });
-                    box.innerHTML = list.length ? list.map(b => app.bookCardHtml(b)).join('') : '<div class="col-span-full p-8 text-center text-slate-400 font-bold bg-slate-50 rounded-2xl">لا توجد كتب أو دورات قيد الدراسة حالياً. ابدأ أول درس في أي كتاب ليظهر هنا!</div>';
-                } else if (state.activeProfileShelf === 'completed') {
-                    const list = books.filter(b => { const p = app.getBookProgress(b); return p.lessons.length > 0 && p.percent === 100; });
-                    box.innerHTML = list.length ? list.map(b => app.bookCardHtml(b)).join('') : '<div class="col-span-full p-8 text-center text-slate-400 font-bold bg-slate-50 rounded-2xl">لم تختم كتاباً أو دورة بالكامل بعد. واصل وردك اليومي وستجد ختماتك هنا بإذن الله!</div>';
-                } else {
-                    const savedLessons = state.local.favorites.map(id => state.db.lessons.find(l => l.id === id)).filter(Boolean);
-                    box.innerHTML = savedLessons.length ? savedLessons.map(l => `<div class="modern-card rounded-2xl p-4 flex items-center justify-between gap-3"><div class="min-w-0"><strong class="block text-sm font-black text-slate-800 truncate">${app.escapeHtml(l.title)}</strong><span class="text-[11px] font-bold text-rose-600"><i class="fas fa-bookmark ml-1"></i>درس محفوظ</span></div><button onclick="app.openLesson('${l.id}')" class="bg-islamic-900 text-white px-4 py-2 rounded-xl font-black text-xs shrink-0">فتح</button></div>`).join('') : '<div class="col-span-full p-8 text-center text-slate-400 font-bold bg-slate-50 rounded-2xl">لا توجد دروس محفوظة في المفضلة حالياً.</div>';
-                }
-            },
-
-            renderNotebook: () => {
-                const box = document.getElementById('account-notebook-list');
-                if (!box) return;
-                const q = app.normalizeArabic(document.getElementById('notebook-search')?.value || '');
-                const entries = Object.entries(state.local.notes || {})
-                    .filter(([, text]) => String(text || '').trim().length > 0)
-                    .map(([lessonId, text]) => {
-                        const lesson = state.db.lessons.find(l => l.id === lessonId);
-                        const chap = lesson ? state.db.chapters.find(c => c.id === lesson.chapterId) : null;
-                        const book = chap?.bookId ? state.db.books.find(b => b.id === chap.bookId) : null;
-                        return { lessonId, text, lessonTitle: lesson?.title || 'درس علمي', bookTitle: book?.title || chap?.title || 'المكتبة العلمية' };
-                    })
-                    .filter(item => !q || app.normalizeArabic(`${item.text} ${item.lessonTitle} ${item.bookTitle}`).includes(q));
-
-                box.innerHTML = entries.length ? entries.map(item => `<div class="p-4 rounded-2xl bg-amber-50/60 border border-amber-200/80">
-                    <div class="flex items-center justify-between gap-2 mb-2">
-                        <div>
-                            <span class="text-[10px] font-black text-amber-800 bg-white px-2 py-0.5 rounded-md border border-amber-200">${app.escapeHtml(item.bookTitle)}</span>
-                            <h4 class="font-black text-slate-900 text-sm mt-1">${app.escapeHtml(item.lessonTitle)}</h4>
-                        </div>
-                        <button onclick="app.openLesson('${item.lessonId}')" class="text-xs font-black text-islamic-800 hover:underline">فتح الدرس <i class="fas fa-arrow-left mr-1"></i></button>
-                    </div>
-                    <p class="text-xs font-bold text-slate-700 leading-6 whitespace-pre-wrap">${app.escapeHtml(item.text)}</p>
-                </div>`).join('') : '<div class="p-8 text-center text-slate-400 font-bold bg-slate-50 rounded-2xl">لم تقيّد فوائد في كشكولك بعد. افتح أي درس واكتب فوائدك في صندوق «قيّد فائدة» لتظهر هنا.</div>';
-            },
-
-            printNotebook: () => {
-                const entries = Object.entries(state.local.notes || {}).filter(([, t]) => String(t || '').trim());
-                if (!entries.length) return alert('لا توجد فوائد مسجلة في كشكولك لطباعتها بعد.');
-                const w = window.open('', '_blank', 'width=900,height=700');
-                if (!w) return alert('اسمح بالنوافذ المنبثقة لطباعة الكشكول.');
-                const cards = entries.map(([lessonId, text]) => {
-                    const lesson = state.db.lessons.find(l => l.id === lessonId);
-                    return `<div style="border:1px solid #d6c7a5;border-radius:14px;padding:16px;margin-bottom:14px;background:#faf7f0"><h3>${app.escapeHtml(lesson?.title || 'درس')}</h3><p style="white-space:pre-wrap;line-height:1.9">${app.escapeHtml(text)}</p></div>`;
-                }).join('');
-                w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>كشكول الفوائد العلمية</title><style>body{font-family:Cairo,Arial,sans-serif;padding:30px;color:#1b2823}h1{color:#043927}</style></head><body><h1>كشكول الفوائد والملاحظات العلمية — ${app.escapeHtml(app.getStudentDisplayName())}</h1>${cards}<script>window.onload=()=>window.print()<\/script></body></html>`);
-                w.document.close();
-            },
-
-            renderCategoryMastery: () => {
-                const box = document.getElementById('account-category-mastery');
-                if (!box) return;
-                const cats = app.sortItems(state.db.categories.filter(c => app.effectiveAccess('category', c) !== 'hidden'));
-                box.innerHTML = cats.length ? cats.map(cat => {
-                    const chaps = state.db.chapters.filter(ch => ch.categoryId === cat.id && app.effectiveAccess('chapter', ch) !== 'hidden');
-                    const lessons = state.db.lessons.filter(l => chaps.some(ch => ch.id === l.chapterId) && app.effectiveAccess('lesson', l) !== 'hidden');
-                    const done = lessons.filter(l => state.local.completedLessons.includes(l.id)).length;
-                    const pct = lessons.length ? Math.round((done / lessons.length) * 100) : 0;
-                    return `<div>
-                        <div class="flex justify-between text-xs font-black text-slate-700 mb-1">
-                            <span>${app.escapeHtml(cat.name)}</span>
-                            <span class="text-islamic-700">${done}/${lessons.length} (${pct}%)</span>
-                        </div>
-                        <div class="h-2 bg-slate-100 rounded-full overflow-hidden">
-                            <div class="h-full bg-gradient-to-l from-islamic-800 to-amber-500 rounded-full" style="width:${pct}%"></div>
-                        </div>
-                    </div>`;
-                }).join('') : '<p class="text-xs font-bold text-slate-400">لا توجد أقسام بعد.</p>';
-            },
-
-            shareStudentCard: async () => {
-                const lvl = app.getLevelInfo();
-                const name = app.getStudentDisplayName();
-                const msg = `🎓 *بطاقة إنجاز طالب علم*\n👤 الاسم: ${name}\n🏅 الرتبة العلمية: ${lvl.name} (المستوى ${lvl.index})\n📚 الدروس المنجزة: ${state.local.completedLessons.length} درس\n✅ الاختبارات المجتازة: ${state.local.quizHistory.length} اختبار\n🔥 أيام الالتزام المتتالية: ${app.calcStreak()} يوم\n\nشاركني طلب العلم الشرعي والعربي مجاناً عبر المنصة:\n${window.location.origin}${window.location.pathname}`;
-                if (navigator.share) {
-                    try { await navigator.share({ title: 'بطاقة طالب العلم', text: msg }); return; } catch (e) {}
-                }
-                navigator.clipboard?.writeText(msg).then(() => alert('تم نسخ بطاقة إنجازك العلمي! يمكنك مشاركتها مع أصدقائك لتشجيعهم على طلب العلم.'));
-            },
-
-            renderAccount: () => {
-                const guest = document.getElementById('account-guest-card');
-                if (guest) guest.classList.toggle('hidden', !!state.auth.user);
-                const name = app.getStudentDisplayName();
-                const email = state.auth.user?.email || state.auth.profile?.email || 'حساب محلي على هذا الجهاز';
-                const meta = state.local.profileMeta || {};
-                const history = state.local.quizHistory || [];
-                const best = history.length ? Math.max(...history.map(h => Number(h.percentage) || 0)) : null;
-                const avg = history.length ? Math.round(history.reduce((s, h) => s + (Number(h.percentage) || 0), 0) / history.length) : null;
-                const lvl = app.getLevelInfo();
-
-                const setText = (id, val) => { const el = document.getElementById(id); if (el) el.innerText = val; };
-                setText('profile-name', name);
-                setText('profile-email', email);
-                setText('profile-avatar', (name.trim()[0] || 'ط').toUpperCase());
-                setText('profile-bio-display', meta.bio || 'اللهم علمنا ما ينفعنا وانفعنا بما علمتنا وزدنا علماً.');
-                setText('profile-specialty-badge', meta.specialty || 'محب للعلوم الشرعية والعربية');
-                setText('account-level-number', lvl.index);
-                setText('account-level-name', lvl.name);
-                setText('account-level-progress', `${lvl.points} نقطة علمية • ${lvl.progress}% للترقية إلى الرتبة التالية`);
-
-                const ring = document.getElementById('study-level-ring');
-                if (ring) ring.style.setProperty('--level-deg', `${lvl.progress * 3.6}deg`);
-
-                // الورد اليومي
-                const todayKey = new Date().toISOString().slice(0, 10);
-                const doneToday = Number(state.local.dailyLessonLog?.[todayKey] || 0);
-                const goal = Math.max(1, Number(meta.dailyGoal || 1));
-                const goalPct = Math.min(100, Math.round((doneToday / goal) * 100));
-                setText('daily-goal-target-label', goal);
-                setText('daily-goal-status-text', doneToday >= goal ? `أتممت وردك اليومي (${doneToday}/${goal}) 🌟` : `${doneToday} من ${goal} درس اليوم`);
-                const goalBar = document.getElementById('daily-goal-bar');
-                if (goalBar) goalBar.style.width = `${goalPct}%`;
-
-                // نقاط أيام الأسبوع الـ 7
-                const dotsBox = document.getElementById('weekly-streak-dots');
-                if (dotsBox) {
-                    const daySet = new Set(state.local.activityDays || []);
-                    const daysHtml = [];
-                    for (let i = 6; i >= 0; i--) {
-                        const d = new Date(); d.setDate(d.getDate() - i);
-                        const k = d.toISOString().slice(0, 10);
-                        const active = daySet.has(k);
-                        daysHtml.push(`<span class="w-6 h-6 rounded-lg text-[10px] font-black flex items-center justify-center ${active ? 'bg-amber-400 text-emerald-950 shadow' : 'bg-white/10 text-white/40'}" title="${k}">${active ? '✓' : '•'}</span>`);
-                    }
-                    dotsBox.innerHTML = daysHtml.join('');
-                }
-
-                setText('account-completed', (state.local.completedLessons || []).length);
-                setText('account-favorites', (state.local.favorites || []).length);
-                setText('account-quizzes', history.length);
-                setText('account-best', best === null ? '—' : `${best}%`);
-                setText('account-average', avg === null ? '—' : `${avg}%`);
-                setText('account-streak', app.calcStreak());
-                setText('account-mistakes', (state.local.mistakes || []).length);
-
-                const badges = document.getElementById('account-badges');
-                if (badges) {
-                    badges.innerHTML = app.getBadges().map(b => `<span class="px-3 py-2 rounded-xl text-xs font-black border ${b.ok ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-slate-50 border-slate-200 text-slate-400 opacity-60'}"><i class="fas ${b.icon} ml-1.5 ${b.ok ? 'text-amber-600' : ''}"></i>${b.name}${b.ok ? ' ✓' : ''}</span>`).join('');
-                }
-
-                const historyBox = document.getElementById('account-history');
-                if (historyBox) {
-                    historyBox.innerHTML = history.slice(0, 10).map(h => `<div class="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100"><div class="min-w-0"><div class="font-black text-slate-800 text-sm truncate">${app.escapeHtml(h.name || 'اختبار')}</div><div class="text-[11px] font-bold text-slate-400 mt-0.5">${h.date ? new Date(h.date).toLocaleDateString('ar-EG') : ''}</div></div><span class="shrink-0 font-black text-sm px-2.5 py-1 rounded-lg ${Number(h.percentage) >= 70 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}">${Number(h.percentage) || 0}%</span></div>`).join('') || '<div class="text-center p-6 bg-slate-50 rounded-2xl text-slate-400 font-bold text-sm">لم تُسجل نتائج اختبارات بعد.</div>';
-                }
-
-                app.renderProfileShelf();
-                app.renderNotebook();
-                app.renderCategoryMastery();
-                app.renderCertificates();
-                app.renderOfflineLessons();
-            },
-
-            markLessonCompleted: (lessonId) => {
-                if (!lessonId) return;
-                if (!state.local.completedLessons.includes(lessonId)) {
-                    state.local.completedLessons.push(lessonId);
-                    const todayKey = new Date().toISOString().slice(0, 10);
-                    state.local.dailyLessonLog ||= {};
-                    state.local.dailyLessonLog[todayKey] = (Number(state.local.dailyLessonLog[todayKey]) || 0) + 1;
-                }
-                app.recordActivity();
-                app.saveLocalState(true);
-                app.updateLessonActionButtons();
-                app.renderDashboard();
-            },
-
-            toggleCompleteCurrentLesson: () => {
-                if (!state.currentLesson) return;
-                const id = state.currentLesson.id;
-                const idx = state.local.completedLessons.indexOf(id);
-                if (idx >= 0) {
-                    state.local.completedLessons.splice(idx, 1);
-                    app.saveLocalState(true);
-                    app.updateLessonActionButtons();
-                    app.renderDashboard();
-                } else {
-                    app.markLessonCompleted(id);
-                }
-            },
-
-            toggleFavoriteCurrentLesson: () => {
-                if (!state.currentLesson) return;
-                const id = state.currentLesson.id;
-                const idx = state.local.favorites.indexOf(id);
-                if (idx >= 0) state.local.favorites.splice(idx, 1); else state.local.favorites.unshift(id);
-                app.saveLocalState(true); app.updateLessonActionButtons(); app.renderSavedLessons();
-            },
-
-            updateLessonActionButtons: () => {
-                if (!state.currentLesson) return;
-                const fav = state.local.favorites.includes(state.currentLesson.id);
-                const done = state.local.completedLessons.includes(state.currentLesson.id);
-                const favBtn = document.getElementById('favorite-lesson-btn');
-                if (favBtn) favBtn.innerHTML = `<i class="${fav ? 'fas' : 'far'} fa-bookmark"></i>`;
-                const badge = document.getElementById('lesson-complete-badge');
-                if (badge) badge.classList.toggle('hidden', !done);
-                const doneBtn = document.getElementById('complete-lesson-btn');
-                if (doneBtn) {
-                    doneBtn.innerHTML = done ? '<i class="fas fa-circle-check ml-2"></i> أتممت هذا الدرس ✓' : '<i class="fas fa-check ml-2"></i> إتمام قراءة/سماع الدرس';
-                    doneBtn.className = done ? 'w-full md:w-auto bg-emerald-600 text-white px-7 py-3.5 rounded-2xl font-black shadow transition-all' : 'w-full md:w-auto bg-islamic-900 text-amber-200 px-7 py-3.5 rounded-2xl font-black shadow hover:-translate-y-0.5 transition-all';
-                }
-            },
-
-            renderDashboard: () => {
-                const visibleLessons = state.db.lessons.filter(l => app.effectiveAccess('lesson', l) !== 'hidden');
-                const visibleQuizzes = state.db.quizzes.filter(q => app.effectiveAccess('quiz', q) !== 'hidden');
-                const visibleCategories = state.db.categories.filter(c => app.effectiveAccess('category', c) !== 'hidden');
-                const visibleBooks = state.db.books.filter(b => app.effectiveAccess('book', b) !== 'hidden');
-                const completed = state.local.completedLessons.filter(id => visibleLessons.some(l => l.id === id));
-                const history = state.local.quizHistory || [];
-                const best = history.length ? Math.max(...history.map(h => Number(h.percentage) || 0)) : null;
-                const progress = visibleLessons.length ? Math.min(100, Math.round((completed.length / visibleLessons.length) * 100)) : 0;
-
-                const setText = (id, value) => { const el = document.getElementById(id); if (el) el.innerText = value; };
-                setText('stat-categories', visibleCategories.length);
-                setText('stat-books', visibleBooks.length);
-                setText('stat-quizzes', visibleQuizzes.length);
-                setText('stat-best-score', best === null ? '—' : `${best}%`);
-                setText('hero-completed', completed.length);
-                setText('hero-quizzes', history.length);
-                setText('hero-streak', app.calcStreak());
-                setText('hero-progress-label', `${progress}%`);
-                const bar = document.getElementById('hero-progress-bar'); if (bar) bar.style.width = `${progress}%`;
-
-                // بطاقة المتابعة أو مهمة اليوم من خريطة المذاكرة
-                const continueCard = document.getElementById('continue-card');
-                const lastLesson = visibleLessons.find(l => l.id === state.local.lastLessonId);
-                if (continueCard && lastLesson && continueCard.dataset.layoutHidden !== "1") {
-                    const chap = state.db.chapters.find(c => c.id === lastLesson.chapterId);
-                    const book = chap?.bookId ? state.db.books.find(b => b.id === chap.bookId) : null;
-                    continueCard.classList.remove('hidden');
-                    continueCard.innerHTML = `<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div class="flex items-center gap-4">
-                            <span class="w-14 h-14 rounded-2xl bg-islamic-900 text-amber-300 flex items-center justify-center text-xl shadow"><i class="fas fa-book-open-reader"></i></span>
-                            <div>
-                                <span class="text-xs text-amber-700 font-black">أكمل رحلتك العلمية من حيث توقفت</span>
-                                <h3 class="text-xl md:text-2xl font-black text-slate-900 mt-1">${app.escapeHtml(lastLesson.title)}</h3>
-                                <p class="text-slate-500 font-bold text-xs mt-1">${app.escapeHtml(book ? `${book.title} • ${chap?.title || ''}` : (chap?.title || 'درس مشروح'))}</p>
-                            </div>
-                        </div>
-                        <div class="flex gap-2">
-                            <button onclick="app.openLesson('${lastLesson.id}')" class="bg-islamic-900 text-amber-200 px-6 py-3.5 rounded-2xl font-black shadow hover:bg-islamic-800 transition">متابعة الدرس <i class="fas fa-arrow-left mr-2"></i></button>
-                            <button onclick="app.openRoadmap()" class="bg-amber-50 text-amber-900 border border-amber-200 px-4 py-3.5 rounded-2xl font-black text-xs">خريطة المذاكرة</button>
-                        </div>
-                    </div>`;
-                } else continueCard?.classList.add('hidden');
-
-                const featuredQuiz = document.getElementById('featured-quiz');
-                const q = visibleQuizzes[0];
-                if (featuredQuiz) featuredQuiz.innerHTML = q ? `<div class="flex items-center justify-between gap-4"><div><strong class="text-lg font-black text-slate-800 block">${app.escapeHtml(q.name || 'اختبار متاح')}</strong><span class="text-sm text-slate-400 font-bold">${Array.isArray(q.questions) ? q.questions.length + ' سؤال' : 'اختبار تثبيت'}</span></div><button onclick="app.startQuiz('${q.id}','landing')" class="bg-amber-500 text-white px-5 py-2.5 rounded-xl font-black">ابدأ الآن</button></div>` : '<span>لا توجد اختبارات متاحة حالياً.</span>';
-
-                const featuredLesson = document.getElementById('featured-lesson');
-                const l = visibleLessons[visibleLessons.length - 1] || visibleLessons[0];
-                if (featuredLesson) featuredLesson.innerHTML = l ? `<div class="flex items-center justify-between gap-4"><div><strong class="text-lg font-black text-slate-800 block">${app.escapeHtml(l.title)}</strong><span class="text-sm text-slate-400 font-bold">⏱️ ${app.estimateReadingMinutes(l)} دقائق قراءة</span></div><button onclick="app.openLesson('${l.id}')" class="bg-islamic-900 text-amber-200 px-5 py-2.5 rounded-xl font-black">افتح الدرس</button></div>` : '<span>لا توجد دروس متاحة حالياً.</span>';
-                app.renderRecentBooks();
-            },
-
-            // ================= نظام الاختبارات المستقلة والشاملة =================
-            getProtectedLessonPayload: async lesson => {
-                if (!lesson) return null;
-                if (lesson.content !== undefined && lesson.content !== null && String(lesson.content).length) return lesson;
-                try {
-                    const snap = await protectedRef.child(`lessons/${lesson.id}`).once('value');
-                    const payload = snap.val();
-                    if (payload) return { ...lesson, ...payload };
-                } catch (e) {
-                    const off = app.getOfflineLesson(lesson.id);
-                    if (off) return off.lesson;
-                }
-                const off = app.getOfflineLesson(lesson.id);
-                if (off) return off.lesson;
-                return lesson;
-            },
-
-            getQuizWithQuestions: async quiz => {
-                if (!quiz) return null;
-                if (Array.isArray(quiz.questions) && quiz.questions.length) return quiz;
-                try {
-                    const snap = await protectedRef.child(`quizzes/${quiz.id}/questions`).once('value');
-                    return { ...quiz, questions: snap.val() || [] };
-                } catch (e) { return { ...quiz, questions: [] }; }
-            },
-
-            startBookComprehensiveQuiz: async (bookId) => {
-                const book = state.db.books.find(b => b.id === bookId); if (!book) return;
-                state.currentBook = book;
-                const lessons = app.getBookLessons(bookId);
-                let combinedQs = [];
-                for (const l of lessons) {
-                    if (!l.quizId) continue;
-                    const q = state.db.quizzes.find(x => x.id === l.quizId);
-                    if (!q) continue;
-                    try { const full = await app.getQuizWithQuestions(q); combinedQs.push(...(full.questions || [])); } catch (e) {}
-                }
-                if (!combinedQs.length) return alert('لا توجد أسئلة متاحة لإنشاء اختبار شامل لهذا الكتاب.');
-                const data = { id: `book_comp_${bookId}`, name: `اختبار شامل — ${book.title}`, questions: app.shuffle(combinedQs) };
-                state.quizData = data; state.quizBaseData = data; state.quizReturnLocation = 'book';
-                app.initiateQuizSession();
-            },
-
-            startComprehensiveQuiz: async (chapterId) => {
-                const targetChapter = state.db.chapters.find(c => c.id === chapterId);
-                if (targetChapter) state.currentChap = targetChapter;
-                const chapLessons = state.db.lessons.filter(l => l.chapterId === chapterId);
-                let combinedQs = [];
-                for (const l of chapLessons) {
-                    if (!l.quizId) continue;
-                    const q = state.db.quizzes.find(x => x.id === l.quizId);
-                    if (!q) continue;
-                    try { const full = await app.getQuizWithQuestions(q); combinedQs.push(...(full.questions || [])); } catch (e) {}
-                }
-                if (!combinedQs.length) return alert('لا توجد أسئلة متاحة لإنشاء اختبار شامل.');
-                const data = { id: `comp_${chapterId}`, name: `اختبار شامل — ${targetChapter?.title || 'الباب'}`, questions: app.shuffle(combinedQs) };
-                state.quizData = data; state.quizBaseData = data; state.quizReturnLocation = 'chapter';
-                app.initiateQuizSession();
-            },
-
-            startQuiz: async (quizId, returnLocation = 'lesson') => {
-                const meta = state.db.quizzes.find(q => q.id === quizId);
-                if (!meta || !app.guardAccess('quiz', meta)) return alert('الاختبار غير متوفر حالياً.');
-                const quiz = await app.getQuizWithQuestions(meta);
-                if (!quiz?.questions?.length) return alert('لا توجد أسئلة داخل هذا الاختبار بعد.');
-                state.quizData = quiz; state.quizBaseData = quiz; state.quizReturnLocation = returnLocation;
-                window.history.pushState({}, document.title, `?quiz=${quiz.id}`);
-                app.initiateQuizSession();
-            },
-
-            initiateQuizSession: () => {
-                app.stopLessonVideos();
-                app.clearQuizTimer();
-                state.qIdx = 0;
-                state.answers = new Array(state.quizData.questions.length).fill(null);
-                document.getElementById('question-box').classList.remove('hidden');
-                document.getElementById('result-box').classList.add('hidden');
-                document.getElementById('quiz-title-display').innerText = state.quizData.name || 'اختبار';
-                document.getElementById('quiz-correct-live')?.classList.remove('hidden');
-                app.showSection('quiz-view');
-                app.renderQuestion();
-            },
-
-            renderQuestion: () => {
-                const q = state.quizData.questions[state.qIdx]; if (!q) return;
-                const progress = ((state.qIdx + 1) / state.quizData.questions.length) * 100;
-                const prevAns = state.answers[state.qIdx];
-                document.getElementById('quiz-progress').innerText = `سؤال ${state.qIdx + 1} من ${state.quizData.questions.length}`;
-                document.getElementById('quiz-question-number').innerText = state.qIdx + 1;
-                document.getElementById('quiz-percent').innerText = `${Math.round(progress)}%`;
-                document.getElementById('progress-bar').style.width = `${progress}%`;
-                document.getElementById('q-text').innerText = q.text;
-
-                const correctSoFar = state.answers.reduce((n, ans, idx) => n + (ans !== null && ans === state.quizData.questions[idx]?.correctIndex ? 1 : 0), 0);
-                document.getElementById('quiz-correct-live').innerText = `${correctSoFar} صحيحة`;
-
-                document.getElementById('q-opts').innerHTML = (q.options || []).map((opt, i) => {
-                    let btnClass = 'opt-btn flex items-center justify-between gap-3 group';
-                    let disabled = '';
-                    if (prevAns !== null) {
-                        disabled = 'disabled';
-                        if (i === q.correctIndex) btnClass += ' correct';
-                        else if (i === prevAns) btnClass += ' wrong';
-                    }
-                    return `<button ${disabled} onclick="app.submitAnswer(${i}, this)" class="${btnClass}"><span class="flex items-center gap-3"><span class="w-10 h-10 shrink-0 rounded-xl border-2 border-slate-200 flex items-center justify-center text-sm text-amber-800 font-black">${['أ', 'ب', 'ج', 'د'][i] || i + 1}</span><span class="leading-relaxed text-base md:text-lg">${app.escapeHtml(opt)}</span></span><i class="fas fa-chevron-left text-slate-300"></i></button>`;
-                }).join('');
-
-                const expBox = document.getElementById('q-explanation-box');
-                if (expBox) {
-                    if (prevAns !== null && q.explanation) {
-                        expBox.classList.remove('hidden');
-                        expBox.innerHTML = `<i class="fas fa-lightbulb ml-1.5 text-amber-600"></i><strong>التعليل والفائدة العلمية:</strong> ${app.escapeHtml(q.explanation)}`;
-                    } else expBox.classList.add('hidden');
-                }
-
-                document.getElementById('prev-btn').classList.toggle('hidden', state.qIdx === 0);
-                const nextBtn = document.getElementById('next-btn');
-                nextBtn.classList.toggle('hidden', prevAns === null);
-                nextBtn.innerHTML = state.qIdx + 1 < state.quizData.questions.length ? 'السؤال التالي <i class="fas fa-arrow-left mr-2"></i>' : 'عرض النتيجة النهائية <i class="fas fa-flag-checkered mr-2"></i>';
-            },
-
-            submitAnswer: (idx, btn) => {
-                if (state.answers[state.qIdx] !== null) return;
-                const q = state.quizData.questions[state.qIdx];
-                state.answers[state.qIdx] = idx;
-                document.querySelectorAll('.opt-btn').forEach(b => b.disabled = true);
-                if (idx === q.correctIndex) btn.classList.add('correct');
-                else { btn.classList.add('wrong'); document.querySelectorAll('.opt-btn')[q.correctIndex]?.classList.add('correct'); }
-
-                const expBox = document.getElementById('q-explanation-box');
-                if (expBox && q.explanation) {
-                    expBox.classList.remove('hidden');
-                    expBox.innerHTML = `<i class="fas fa-lightbulb ml-1.5 text-amber-600"></i><strong>التعليل والفائدة العلمية:</strong> ${app.escapeHtml(q.explanation)}`;
-                }
-                document.getElementById('next-btn').classList.remove('hidden');
-                if (!q.explanation) {
-                    setTimeout(() => {
-                        if (state.qIdx + 1 < state.quizData.questions.length) { state.qIdx++; app.renderQuestion(); }
-                        else app.finishQuiz();
-                    }, 900);
-                }
-            },
-
-            prevQuestion: () => { if (state.qIdx > 0) { state.qIdx--; app.renderQuestion(); } },
-            nextQuestion: () => {
-                if (state.qIdx + 1 < state.quizData.questions.length) { state.qIdx++; app.renderQuestion(); }
-                else app.finishQuiz();
-            },
-
-            finishQuiz: () => {
-                document.getElementById('question-box').classList.add('hidden');
-                document.getElementById('result-box').classList.remove('hidden');
-                const total = state.quizData.questions.length;
-                let finalScore = 0;
-                state.answers.forEach((ans, idx) => { if (ans === state.quizData.questions[idx].correctIndex) finalScore++; });
-                const wrong = total - finalScore;
-                const percentage = total ? Math.round((finalScore / total) * 100) : 0;
-
-                state.local.quizHistory.unshift({ quizId: state.quizData.id, name: state.quizData.name || 'اختبار', percentage, date: Date.now() });
-                state.local.quizHistory = state.local.quizHistory.slice(0, 100);
-                app.updateMistakeBank();
-                if (state.currentLesson && state.currentLesson.quizId === state.quizData.id) {
-                    app.markLessonCompleted(state.currentLesson.id);
-                } else {
-                    app.recordActivity();
-                    app.saveLocalState(true);
-                }
-                app.renderDashboard();
-
-                document.getElementById('res-score').innerText = `${percentage}%`;
-                document.getElementById('res-correct').innerText = finalScore;
-                document.getElementById('res-wrong').innerText = wrong;
-                document.getElementById('res-total').innerText = total;
-                document.getElementById('res-ring').style.background = `conic-gradient(#10b981 ${percentage * 3.6}deg, #e2e8f0 0deg)`;
-                document.getElementById('res-msg').innerText = percentage >= 90 ? 'ما شاء الله! إتقان ممتاز للدرس 🌟' : percentage >= 70 ? 'جيد جداً، راجع التعليلات بالأسفل لمزيد من الإتقان 👍' : 'راجع الشرح والتعليلات ثم أعد المحاولة لتثبيت المعلومة 📚';
-                document.getElementById('retry-wrong-btn').classList.toggle('hidden', wrong === 0);
-
-                // زر الانتقال للدرس التالي بعد الاختبار
-                const nextBtn = document.getElementById('res-next-lesson-btn');
-                if (nextBtn && state.currentLesson && state.currentBook) {
-                    const list = app.getBookLessons(state.currentBook.id);
-                    const idx = list.findIndex(l => l.id === state.currentLesson.id);
-                    const nextLes = idx >= 0 && idx + 1 < list.length ? list[idx + 1] : null;
-                    nextBtn.classList.toggle('hidden', !nextLes);
-                    if (nextLes) nextBtn.onclick = () => app.openLesson(nextLes.id);
-                } else nextBtn?.classList.add('hidden');
-
-                document.getElementById('review-list').innerHTML = state.quizData.questions.map((q, idx) => {
-                    if (!q) return '';
-                    const userAns = state.answers[idx];
-                    const isCorrect = userAns === q.correctIndex;
-                    return `<div class="review-card ${isCorrect ? 'review-correct' : 'review-wrong'} modern-card p-5 md:p-6 rounded-[1.7rem] text-right">
-                        <div class="flex items-center justify-between gap-3 mb-3">
-                            <span class="text-xs font-black text-slate-600 bg-white px-3 py-1 rounded-xl border">سؤال ${idx + 1}</span>
-                            <span class="text-xs font-black ${isCorrect ? 'text-emerald-700 bg-emerald-100' : 'text-red-600 bg-red-100'} px-3 py-1 rounded-xl">${isCorrect ? 'إجابة صحيحة ✓' : 'تحتاج مراجعة'}</span>
-                        </div>
-                        <p class="font-black text-slate-900 mb-3 text-lg leading-relaxed">${app.escapeHtml(q.text)}</p>
-                        <div class="space-y-2">
-                            <div class="bg-white/80 p-3 rounded-xl text-sm font-bold"><span class="text-slate-400">إجابتك: </span><span class="${isCorrect ? 'text-emerald-700' : 'text-red-600'}">${userAns !== null ? app.escapeHtml(q.options[userAns]) : 'لم يتم الاختيار'}</span></div>
-                            ${!isCorrect ? `<div class="bg-emerald-50 p-3 rounded-xl text-sm font-bold"><span class="text-emerald-600">الإجابة الصحيحة: </span><span class="text-emerald-900">${app.escapeHtml(q.options[q.correctIndex])}</span></div>` : ''}
-                            ${q.explanation ? `<div class="bg-amber-50 border border-amber-200 p-3 rounded-xl text-xs font-bold text-amber-950 leading-6"><i class="fas fa-lightbulb ml-1 text-amber-600"></i><strong>التعليل العلمي:</strong> ${app.escapeHtml(q.explanation)}</div>` : ''}
-                        </div>
-                    </div>`;
-                }).join('');
-
-                const meta = state.quizBaseData || state.quizData, pass = Number(meta?.passingScore ?? 70);
-                document.getElementById('quiz-certificate-btn')?.classList.toggle('hidden', percentage < pass);
-                app.renderCertificates();
-                window.scrollTo(0, 0);
-            },
-
-            retryQuiz: () => { if (!state.quizBaseData) return; state.quizData = state.quizBaseData; app.initiateQuizSession(); },
-            retryWrongAnswers: () => {
-                const wrongQuestions = state.quizData.questions.filter((q, idx) => state.answers[idx] !== q.correctIndex);
-                if (!wrongQuestions.length) return alert('أحسنت! لا توجد أخطاء لمراجعتها.');
-                state.quizData = { id: `${state.quizBaseData?.id || 'quiz'}_mistakes`, name: 'مراجعة الأخطاء', questions: wrongQuestions };
-                app.initiateQuizSession();
-            },
-            closeQuiz: () => {
-                app.clearQuizTimer();
-                window.history.pushState({}, document.title, window.location.pathname);
-                if (state.quizReturnLocation === 'lesson' && state.currentLesson) app.openLesson(state.currentLesson.id);
-                else if (state.quizReturnLocation === 'book' && state.currentBook) app.openBook(state.currentBook.id);
-                else if (state.quizReturnLocation === 'chapter' && state.currentChap) app.openChapter(state.currentChap.id);
-                else app.showSection('landing');
-            },
-
-            // ================= بقية الأدوات المساعدة (بحث، إشعارات، شهادات، أوفلاين، حساب) =================
-            renderAuthUI: () => {
-                const name = app.getStudentDisplayName();
-                const firstName = name.split(' ')[0] || 'ملفي';
-                const initial = app.escapeHtml((name.trim()[0] || 'ط').toUpperCase());
-                const label = document.getElementById('account-nav-label');
-                const avatar = document.getElementById('account-nav-avatar');
-                const mobileLabel = document.getElementById('account-mobile-label');
-                const mobileAvatar = document.getElementById('account-mobile-avatar');
-                if (state.auth.user) {
-                    if (label) label.innerText = `ملفي • ${firstName}`;
-                    if (avatar) avatar.innerHTML = initial;
-                    if (mobileLabel) mobileLabel.innerText = `طالب العلم: ${firstName}`;
-                    if (mobileAvatar) mobileAvatar.innerHTML = initial;
-                } else {
-                    if (label) label.innerText = 'ملفي العلمي / دخول';
-                    if (avatar) avatar.innerHTML = '<i class="fas fa-user-graduate"></i>';
-                    if (mobileLabel) mobileLabel.innerText = 'ملفي العلمي / تسجيل الدخول';
-                    if (mobileAvatar) mobileAvatar.innerHTML = '<i class="fas fa-user-graduate"></i>';
-                }
-            },
-
-            handleTopAccountButton: () => app.openAccount(),
-            openAccount: () => { app.renderAccount(); app.showSection('account-view'); app.setBottomNav('account'); },
-
-            openAuthModal: (mode = 'login') => {
-                app.switchAuthMode(mode);
-                const modal = document.getElementById('auth-modal');
-                if (modal) { modal.classList.remove('hidden'); modal.classList.add('flex'); }
-            },
-            closeAuthModal: () => { const m = document.getElementById('auth-modal'); if (m) { m.classList.add('hidden'); m.classList.remove('flex'); } app.showAuthMessage('', 'clear'); },
-            switchAuthMode: (mode) => {
-                state.auth.mode = mode;
-                const reg = mode === 'register';
-                document.getElementById('auth-name-wrap')?.classList.toggle('hidden', !reg);
-                document.getElementById('forgot-password-btn')?.classList.toggle('hidden', reg);
-                document.getElementById('auth-login-tab').className = `py-2.5 rounded-xl font-black text-sm ${!reg ? 'bg-islamic-900 text-white' : 'text-slate-600'}`;
-                document.getElementById('auth-register-tab').className = `py-2.5 rounded-xl font-black text-sm ${reg ? 'bg-islamic-900 text-white' : 'text-slate-600'}`;
-                document.getElementById('auth-modal-title').innerText = reg ? 'إنشاء حساب طالب علم' : 'تسجيل الدخول';
-                document.getElementById('auth-submit-btn').innerText = reg ? 'إنشاء الحساب المجاني' : 'تسجيل الدخول';
-                app.showAuthMessage('', 'clear');
-            },
-            showAuthMessage: (msg, type = 'info') => {
-                const box = document.getElementById('auth-message'); if (!box) return;
-                if (!msg || type === 'clear') { box.classList.add('hidden'); box.innerText = ''; return; }
-                box.className = `mb-4 p-3 rounded-xl text-sm font-bold ${type === 'error' ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-emerald-50 text-emerald-700 border border-emerald-100'}`;
-                box.innerText = msg; if (box.dataset.layoutHidden !== "1") box.classList.remove('hidden');
-            },
-            authErrorText: (e) => ({
-                'auth/email-already-in-use': 'هذا البريد مسجل بالفعل.',
-                'auth/invalid-email': 'البريد الإلكتروني غير صحيح.',
-                'auth/weak-password': 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.',
-                'auth/wrong-password': 'البريد أو كلمة المرور غير صحيحة.',
-                'auth/user-not-found': 'البريد أو كلمة المرور غير صحيحة.',
-                'auth/invalid-login-credentials': 'البريد أو كلمة المرور غير صحيحة.'
-            }[e?.code] || 'حدث خطأ في الاتصال. حاول مرة أخرى.'),
-            submitAuth: async () => {
-                const email = (document.getElementById('auth-email')?.value || '').trim();
-                const password = document.getElementById('auth-password')?.value || '';
-                const name = (document.getElementById('auth-name')?.value || '').trim();
-                if (!email || !password) return app.showAuthMessage('اكتب البريد الإلكتروني وكلمة المرور.', 'error');
-                if (state.auth.mode === 'register' && name.length < 2) return app.showAuthMessage('اكتب اسمك الكامل.', 'error');
-                const btn = document.getElementById('auth-submit-btn');
-                if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin ml-2"></i>جاري التنفيذ...'; }
-                try {
-                    if (state.auth.mode === 'register') {
-                        state.auth.pendingGuestMigration = { email: email.toLowerCase(), progress: app.cloneProgress() };
-                        const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
-                        await cred.user.updateProfile({ displayName: name });
-                        state.local.profileMeta.name = name;
-                        await usersRef.child(`${cred.user.uid}/profile`).set({ name, email, createdAt: Date.now(), lastLoginAt: Date.now(), lastActivityAt: Date.now() });
-                    } else {
-                        state.auth.pendingGuestMigration = null;
-                        await firebase.auth().signInWithEmailAndPassword(email, password);
-                    }
-                    app.closeAuthModal();
-                    app.openAccount();
-                } catch (e) {
-                    state.auth.pendingGuestMigration = null;
-                    app.showAuthMessage(app.authErrorText(e), 'error');
-                } finally {
-                    if (btn) { btn.disabled = false; btn.innerText = state.auth.mode === 'register' ? 'إنشاء الحساب المجاني' : 'تسجيل الدخول'; }
-                }
-            },
-            resetPassword: async () => {
-                const email = (document.getElementById('auth-email')?.value || '').trim();
-                if (!email) return app.showAuthMessage('اكتب بريدك الإلكتروني أولاً.', 'error');
-                try { await firebase.auth().sendPasswordResetEmail(email); app.showAuthMessage('تم إرسال رابط استعادة كلمة المرور إلى بريدك.', 'success'); }
-                catch (e) { app.showAuthMessage(app.authErrorText(e), 'error'); }
-            },
-            toggleAuthPassword: () => {
-                const input = document.getElementById('auth-password'), icon = document.getElementById('auth-password-icon'); if (!input) return;
-                const show = input.type === 'password'; input.type = show ? 'text' : 'password'; if (icon) icon.className = `fas ${show ? 'fa-eye-slash' : 'fa-eye'}`;
-            },
-            resetCurrentProgress: async () => {
-                if (!confirm('هل تريد تصفير تقدمك المحفوظ؟ سيتم حذف الدروس المكتملة ونتائج الاختبارات.')) return;
-                if (state.auth.user) await usersRef.child(`${state.auth.user.uid}/progress`).remove();
-                app.clearLocalProgress(state.auth.user?.uid || null);
-                state.local = app.emptyProgress();
-                app.saveLocalState(false);
-                app.renderDashboard(); app.renderSavedLessons(); app.renderCategories(); app.renderAccount();
-            },
-            logout: async () => {
-                if (!state.auth.user) return;
-                await app.syncCloudProgress(true);
-                await firebase.auth().signOut();
-                app.resetUrlAndGo('landing');
-            },
-
-            applySavedTheme: () => {
-                const dark = localStorage.getItem('ahmed_theme') === 'dark';
-                document.body.classList.toggle('dark-mode', dark);
-                app.syncThemeIcons(dark);
-            },
-            syncThemeIcons: (dark) => {
-                ['theme-icon', 'theme-icon-mobile'].forEach(id => {
-                    const el = document.getElementById(id);
-                    if (el) el.className = `fas ${dark ? 'fa-sun text-amber-400' : 'fa-moon'}`;
-                });
-            },
-            toggleTheme: () => {
-                const dark = !document.body.classList.contains('dark-mode');
-                document.body.classList.toggle('dark-mode', dark);
-                localStorage.setItem('ahmed_theme', dark ? 'dark' : 'light');
-                app.syncThemeIcons(dark);
-            },
-            focusMobileSearch: () => {
-                const wrap = document.getElementById('mobile-search-wrap');
-                wrap.classList.toggle('hidden');
-                if (!wrap.classList.contains('hidden')) setTimeout(() => document.getElementById('mobile-search-input')?.focus(), 50);
-            },
-            scrollToCategories: () => {
-                app.showSection('landing');
-                setTimeout(() => document.getElementById('categories-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
-            },
-            setBottomNav: (name) => {
-                document.querySelectorAll('.bottom-nav-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
-            },
-            bottomNavigate: (target) => {
-                if (target === 'home') { app.resetUrlAndGo('landing'); app.setBottomNav('home'); }
-                if (target === 'sections') { app.scrollToCategories(); app.setBottomNav('sections'); }
-                if (target === 'roadmap') { app.openRoadmap(); app.setBottomNav('roadmap'); }
-                if (target === 'quizzes') { app.openQuizLibrary(); app.setBottomNav('quizzes'); }
-                if (target === 'account') { app.openAccount(); app.setBottomNav('account'); }
-            },
-
-            handleSearch: (mobile = false) => {
-                const input = document.getElementById(mobile ? 'mobile-search-input' : 'search-input');
-                const rawQuery = (input?.value || '').trim();
-                const query = app.normalizeArabic(rawQuery);
-                if (!query) { if (!document.getElementById('search-view').classList.contains('hidden')) app.showSection('landing'); return; }
-                const results = [];
-                state.db.books.filter(b => app.effectiveAccess('book', b) !== 'hidden').forEach(b => {
-                    const hay = app.normalizeArabic(`${b.title || ''} ${b.author || ''} ${b.description || ''}`);
-                    if (hay.includes(query)) results.push({ type: app.contentTypeMeta(app.inferContentType(b)).label, title: b.title, sub: b.author || '', snippet: b.description || '', action: `app.openBook('${b.id}')`, icon: 'fa-book-open', color: 'text-amber-600' });
-                });
-                state.db.lessons.filter(l => app.effectiveAccess('lesson', l) !== 'hidden').forEach(l => {
-                    const normTitle = app.normalizeArabic(l.title || '');
-                    const normContent = app.normalizeArabic(l.content || '');
-                    if (normTitle.includes(query) || normContent.includes(query)) {
-                        const snippet = normContent.includes(query) ? app.extractSearchSnippet(l.content, rawQuery) : '';
-                        results.push({ type: 'درس مشروح', title: l.title, sub: `⏱️ ${app.estimateReadingMinutes(l)} دقائق`, snippet, action: `app.openLesson('${l.id}')`, icon: 'fa-file-lines', color: 'text-emerald-700' });
-                    }
-                });
-                state.db.categories.filter(c => app.effectiveAccess('category', c) !== 'hidden').forEach(c => {
-                    if (app.normalizeArabic(`${c.name || ''} ${c.description || ''}`).includes(query)) results.push({ type: 'قسم علمي', title: c.name, sub: c.description || '', snippet: '', action: `app.openCategory('${c.id}')`, icon: 'fa-layer-group', color: 'text-indigo-600' });
-                });
-                state.db.quizzes.filter(q => app.effectiveAccess('quiz', q) !== 'hidden').forEach(q => {
-                    const qQuestionsText = (q.questions || []).map(x => x?.text || '').join(' ');
-                    if (app.normalizeArabic(`${q.name || ''} ${qQuestionsText}`).includes(query)) results.push({ type: 'اختبار تثبيت', title: q.name || 'اختبار', sub: `${q.questions?.length || ''} سؤال`, snippet: '', action: `app.startQuiz('${q.id}','landing')`, icon: 'fa-clipboard-question', color: 'text-rose-600' });
-                });
-                const badge = document.getElementById('search-count-badge');
-                if (badge) badge.innerText = `${results.length} نتيجة (بحث ذكي يتجاهل التشكيل والهمزات)`;
-                document.getElementById('search-results').innerHTML = results.length
-                    ? results.slice(0, 40).map(r => `<div onclick="${r.action}" class="modern-card p-4 md:p-5 rounded-2xl flex justify-between items-center cursor-pointer hover:border-amber-400 transition"><div class="flex items-start gap-4 min-w-0"><span class="w-11 h-11 rounded-xl bg-slate-50 flex items-center justify-center shrink-0 mt-0.5"><i class="fas ${r.icon} ${r.color} text-xl"></i></span><div class="min-w-0"><h4 class="font-black text-base md:text-lg text-slate-800 truncate">${app.escapeHtml(r.title)}</h4><span class="text-xs font-bold text-slate-400 block">${r.type} ${r.sub ? '• ' + app.escapeHtml(r.sub) : ''}</span>${r.snippet ? `<p class="text-xs font-bold text-islamic-800 bg-amber-50/70 border border-amber-200/70 px-3 py-1.5 rounded-xl mt-2 line-clamp-2">${app.escapeHtml(r.snippet)}</p>` : ''}</div></div><i class="fas fa-chevron-left text-slate-300 shrink-0 mr-2"></i></div>`).join('')
-                    : `<div class="text-center p-10 modern-card rounded-3xl"><p class="font-bold text-slate-500">لا توجد نتائج مطابقة لبحثك.</p></div>`;
-                app.showSection('search-view');
-            },
-
-            showSection: (id) => {
-                if (id !== 'lesson-view') { app.stopLessonVideos(); app.toggleCourseDrawer(false); }
-                document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-                document.getElementById(id)?.classList.remove('hidden');
-                if (id === 'landing') app.setBottomNav('home');
-                if (id === 'account-view') app.setBottomNav('account');
-                if (id === 'roadmap-view') app.setBottomNav('roadmap');
-                window.scrollTo(0, 0);
-            },
-
-            openQuizLibrary: () => { app.renderQuizLibrary(); app.showSection('quizzes-library'); app.setBottomNav('quizzes'); },
-            renderQuizLibrary: () => {
-                const box = document.getElementById('all-quizzes-grid'); if (!box) return;
-                const quizzes = state.db.quizzes.filter(q => app.effectiveAccess('quiz', q) !== 'hidden');
-                box.innerHTML = quizzes.length ? quizzes.map(q => `<div class="modern-card rounded-3xl p-5 flex flex-col gap-4"><div class="flex items-start justify-between gap-3"><span class="w-12 h-12 rounded-2xl bg-amber-50 text-amber-700 flex items-center justify-center text-lg"><i class="fas fa-clipboard-question"></i></span><span class="text-xs font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-full">${q.questions?.length || 'متاح'} سؤال</span></div><div><h3 class="font-black text-lg text-slate-800 leading-relaxed">${app.escapeHtml(q.name || 'اختبار')}</h3></div><button onclick="app.startQuiz('${q.id}','landing')" class="mt-auto bg-islamic-900 text-amber-200 py-3 rounded-2xl font-black text-sm">ابدأ الاختبار <i class="fas fa-arrow-left mr-2"></i></button></div>`).join('') : '<div class="col-span-full text-center p-12 modern-card rounded-3xl font-black text-slate-400">لا توجد اختبارات مضافة حالياً.</div>';
-            },
-
-            openSaved: () => { app.renderSavedLessons(); app.showSection('saved-view'); },
-            renderSavedLessons: () => {
-                const box = document.getElementById('saved-lessons-list'); if (!box) return;
-                const lessons = state.local.favorites.map(id => state.db.lessons.find(l => l.id === id)).filter(Boolean);
-                box.innerHTML = lessons.length ? lessons.map(l => `<div class="modern-card rounded-2xl p-5 flex items-center justify-between gap-4"><div class="flex items-center gap-3 min-w-0"><span class="w-11 h-11 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i class="fas fa-bookmark"></i></span><h3 class="font-black text-slate-800 truncate">${app.escapeHtml(l.title)}</h3></div><button onclick="app.openLesson('${l.id}')" class="bg-islamic-900 text-white px-4 py-2 rounded-xl font-black text-sm shrink-0">فتح</button></div>`).join('') : `<div class="modern-card rounded-3xl p-10 text-center text-slate-400 font-bold">لا توجد دروس محفوظة بعد.</div>`;
-                app.renderOfflineLessons();
-            },
-
-            getCertificates: () => {
-                const out = [];
-                state.db.books.forEach(book => {
-                    const pr = app.getBookProgress(book);
-                    if (pr.lessons.length > 0 && pr.percent === 100) {
-                        out.push({ kind: 'book', id: book.id, title: `إجازة تشجيعية في ختم: ${book.title}`, subtitle: `إتمام ${pr.lessons.length} درساً واختباراتها` });
-                    }
-                });
-                state.db.categories.forEach(cat => {
-                    const ch = state.db.chapters.filter(c => c.categoryId === cat.id && app.effectiveAccess('chapter', c) !== 'hidden');
-                    const less = state.db.lessons.filter(l => ch.some(c => c.id === l.chapterId) && app.effectiveAccess('lesson', l) !== 'hidden');
-                    if (less.length && less.every(l => state.local.completedLessons.includes(l.id))) {
-                        out.push({ kind: 'category', id: cat.id, title: `شهادة إتمام قسم ${cat.name}`, subtitle: `إكمال ${less.length} درساً` });
-                    }
-                });
-                const best = {};
-                (state.local.quizHistory || []).forEach(h => {
-                    const q = state.db.quizzes.find(x => x.id === h.quizId); if (!q) return;
-                    const pass = Number(q.passingScore ?? 70);
-                    if (Number(h.percentage) >= pass && (!best[q.id] || Number(h.percentage) > Number(best[q.id].percentage))) best[q.id] = h;
-                });
-                Object.values(best).forEach(h => out.push({ kind: 'quiz', id: h.quizId, title: `اجتياز ${h.name || 'الاختبار'}`, subtitle: `بتقدير ${Number(h.percentage) || 0}%`, date: h.date }));
-                return out;
-            },
-            renderCertificates: () => {
-                const box = document.getElementById('certificates-list'); if (!box) return;
-                const arr = app.getCertificates();
-                box.innerHTML = arr.length ? arr.map(c => `<div class="border border-amber-200 bg-amber-50/50 rounded-2xl p-4 flex items-center justify-between gap-3"><div><strong class="text-amber-950 text-sm block">${app.escapeHtml(c.title)}</strong><span class="text-xs font-bold text-amber-700">${app.escapeHtml(c.subtitle || '')}</span></div><button onclick="app.printCertificate('${c.kind}','${c.id}')" class="bg-islamic-900 text-amber-200 px-3.5 py-2 rounded-xl font-black text-xs"><i class="fas fa-print ml-1"></i>طباعة</button></div>`).join('') : '<div class="text-center p-5 text-slate-400 font-bold text-sm bg-slate-50 rounded-2xl">أكمل كتاباً أو دورة أو اجتز اختباراً لتظهر شهاداتك هنا جاهزة للطباعة.</div>';
-            },
-            printCertificate: (kind, id) => {
-                const c = app.getCertificates().find(x => x.kind === kind && x.id === id);
-                if (!c) return alert('الشهادة غير متاحة بعد.');
-                const name = app.getStudentDisplayName();
-                const platform = state.db.settings?.branding?.name || 'منصة أستاذ أحمد عيد العلمية';
-                const w = window.open('', '_blank', 'width=1100,height=750');
-                if (!w) return alert('اسمح بالنوافذ المنبثقة لطباعة الشهادة.');
-                w.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>شهادة إنجاز علمي</title><style>body{font-family:Cairo,Arial,sans-serif;background:#faf7f0;padding:30px}.cert{max-width:960px;margin:auto;background:#fffdf9;border:12px double #043927;outline:3px solid #c59b27;padding:55px;text-align:center}h1{color:#043927;font-size:44px;margin:12px 0}.name{font-size:36px;color:#92400e;font-weight:900;margin:24px 0}.desc{font-size:22px;line-height:1.9;color:#1f2d27}</style></head><body><div class="cert"><div style="color:#c59b27;font-weight:900">${app.escapeHtml(platform)} — وقف علمي مجاني</div><h1>شهادة إتمام وإنجاز علمي</h1><p>تشهد إدارة المنصة بأن طالب العلم:</p><div class="name">${app.escapeHtml(name)}</div><div class="desc">قد أتمّ بفضل الله تعالى:<br><strong>${app.escapeHtml(c.title)}</strong><br>${app.escapeHtml(c.subtitle || '')}</div><p style="margin-top:35px;color:#64748b">تاريخ الإصدار: ${new Date(c.date || Date.now()).toLocaleDateString('ar-EG')} • نسأل الله أن ينفع به الإسلام والمسلمين</p></div><script>window.onload=()=>window.print()<\/script></body></html>`);
-                w.document.close();
-            },
-            printCurrentQuizCertificate: () => {
-                const id = state.quizBaseData?.id || state.quizData?.id;
-                if (id) app.printCertificate('quiz', id);
-            },
-
-            renderPlatformAnnouncement: () => {
-                const box = document.getElementById('platform-announcement'); if (!box) return;
-                const a = state.db.settings?.announcement;
-                const dismissed = localStorage.getItem('ahmed_dismissed_announcement');
-                if (!a || !a.active || !a.text || (a.updatedAt && String(a.updatedAt) === dismissed)) {
-                    box.classList.add('hidden'); box.innerHTML = ''; return;
-                }
-                box.className = 'modern-card rounded-3xl border-r-8 border-islamic-gold p-4 md:p-5';
-                box.innerHTML = `<div class="flex items-start justify-between gap-4"><div class="flex items-start gap-3"><span class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0"><i class="fas fa-bullhorn"></i></span><div><strong class="font-black text-lg text-slate-900">${app.escapeHtml(a.title || 'تنويه من إدارة المنصة')}</strong><p class="font-bold text-slate-600 text-sm mt-1 leading-7">${app.escapeHtml(a.text)}</p></div></div><button onclick="app.dismissAnnouncement('${a.updatedAt || ''}')" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-500"><i class="fas fa-times"></i></button></div>`;
-                if (box.dataset.layoutHidden !== "1") box.classList.remove('hidden');
-            },
-            dismissAnnouncement: (updatedAt) => {
-                if (updatedAt) localStorage.setItem('ahmed_dismissed_announcement', String(updatedAt));
-                document.getElementById('platform-announcement')?.classList.add('hidden');
-            },
-
-            notificationReadKey: () => `ahmed_notifications_read_${state.auth.user?.uid || 'guest'}`,
-            buildNotifications: () => {
-                const out = [];
-                const a = state.db.settings?.announcement;
-                if (a?.active && a.text) out.push({ id: `ann_${a.updatedAt || a.text}`, title: a.title || 'إعلان المنصة', text: a.text, icon: 'fa-bullhorn', date: a.updatedAt || Date.now() });
-                return out;
-            },
-            renderNotifications: () => {
-                const items = app.buildNotifications();
-                let read = []; try { read = JSON.parse(localStorage.getItem(app.notificationReadKey()) || '[]'); } catch (e) {}
-                const unread = items.filter(x => !read.includes(x.id)).length;
-                ['notification-dot-desktop', 'notification-dot-mobile'].forEach(id => document.getElementById(id)?.classList.toggle('hidden', unread === 0));
-                const box = document.getElementById('notifications-list');
-                if (box) box.innerHTML = items.length ? items.map(n => `<div class="border rounded-2xl p-4 bg-slate-50"><strong class="text-slate-800">${app.escapeHtml(n.title)}</strong><p class="text-sm font-bold text-slate-500 mt-1">${app.escapeHtml(n.text)}</p></div>`).join('') : '<div class="text-center p-8 text-slate-400 font-bold">لا توجد إشعارات جديدة.</div>';
-            },
-            openNotifications: () => { app.renderNotifications(); const m = document.getElementById('notifications-modal'); m?.classList.remove('hidden'); m?.classList.add('flex'); },
-            closeNotifications: () => { const m = document.getElementById('notifications-modal'); m?.classList.add('hidden'); m?.classList.remove('flex'); },
-            markNotificationsRead: () => { localStorage.setItem(app.notificationReadKey(), JSON.stringify(app.buildNotifications().map(x => x.id))); app.renderNotifications(); },
-
-            recordActivity: () => {
-                const d = new Date().toISOString().slice(0, 10);
-                state.local.activityDays = [...new Set([...(state.local.activityDays || []), d])].sort().slice(-120);
-                app.saveLocalState();
-            },
-            calcStreak: () => {
-                const set = new Set(state.local.activityDays || []);
-                let n = 0, d = new Date();
-                for (let i = 0; i < 365; i++) {
-                    const key = d.toISOString().slice(0, 10);
-                    if (set.has(key)) { n++; d.setDate(d.getDate() - 1); }
-                    else if (i === 0) { d.setDate(d.getDate() - 1); }
-                    else break;
-                }
-                return n;
-            },
-            mediaEmbedHtml: (url) => {
-                const safe = app.safeUrl(url); if (!safe) return '';
-                let embed = '';
-                try {
-                    const u = new URL(safe);
-                    if (u.hostname.includes('youtu.be')) embed = `https://www.youtube.com/embed/${u.pathname.split('/').filter(Boolean)[0]}?rel=0`;
-                    else if (u.hostname.includes('youtube.com')) {
-                        const id = u.searchParams.get('v') || u.pathname.match(/\/(shorts|embed)\/([^/?]+)/)?.[2];
-                        if (id) embed = `https://www.youtube.com/embed/${id}?rel=0`;
-                    } else if (u.hostname.includes('tiktok.com')) {
-                        const id = u.pathname.match(/video\/(\d+)/)?.[1];
-                        if (id) embed = `https://www.tiktok.com/player/v1/${id}`;
-                    } else if (u.hostname.includes('facebook.com') || u.hostname.includes('fb.watch')) {
-                        embed = `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(safe)}&show_text=false&width=800`;
-                    }
-                } catch (e) {}
-                return embed ? `<div class="media-frame"><iframe src="${embed}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen loading="lazy"></iframe></div>` : `<a href="${safe}" target="_blank" rel="noopener" class="modern-card p-5 rounded-2xl flex items-center gap-3 text-islamic-800 font-black"><i class="fas fa-play-circle text-2xl"></i>فتح رابط الفيديو</a>`;
-            },
-            shuffle: arr => { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; },
-            questionKey: q => btoa(unescape(encodeURIComponent(String(q?.text || '').trim().slice(0, 180)))).replace(/=/g, ''),
-            updateMistakeBank: () => {
-                const map = new Map((state.local.mistakes || []).map(m => [m.key, m]));
-                state.quizData.questions.forEach((q, i) => {
-                    const key = app.questionKey(q);
-                    if (state.answers[i] === q.correctIndex) map.delete(key);
-                    else map.set(key, { key, text: q.text, options: q.options, correctIndex: q.correctIndex, explanation: q.explanation || '', updatedAt: Date.now() });
-                });
-                state.local.mistakes = [...map.values()].slice(0, 300);
-            },
-            startRandomQuiz: async count => {
-                let all = [];
-                for (const q of state.db.quizzes) {
-                    if (!app.guardAccess('quiz', q, false)) continue;
-                    try { const full = await app.getQuizWithQuestions(q); all.push(...(full.questions || [])); } catch (e) {}
-                }
-                if (!all.length) return alert('لا توجد أسئلة متاحة حالياً.');
-                const qs = app.shuffle(all).slice(0, Math.min(count, all.length));
-                state.quizData = { id: 'random_' + Date.now(), name: `مراجعة ذكية شاملة (${qs.length} سؤال)`, questions: qs };
-                state.quizBaseData = state.quizData; state.quizReturnLocation = 'landing';
-                app.initiateQuizSession();
-            },
-            startMistakesBankQuiz: () => {
-                const qs = app.shuffle(state.local.mistakes || []);
-                if (!qs.length) return alert('ما شاء الله! لا توجد أخطاء محفوظة في سجلك حالياً.');
-                state.quizData = { id: 'mistakes_bank', name: 'مراجعة أخطائي المحفوظة', questions: qs };
-                state.quizBaseData = state.quizData; state.quizReturnLocation = 'landing';
-                app.initiateQuizSession();
-            },
-            saveLessonNoteDebounced: () => {
-                clearTimeout(state.noteTimer);
-                state.noteTimer = setTimeout(() => {
-                    if (!state.currentLesson) return;
-                    state.local.notes ||= {};
-                    state.local.notes[state.currentLesson.id] = (document.getElementById('lesson-note')?.value || '').slice(0, 5000);
-                    app.saveLocalState(true);
-                    const x = document.getElementById('lesson-note-status');
-                    if (x) x.textContent = 'تم الحفظ في كشكول فوائدك ✓';
-                }, 400);
-            },
-            adjustLessonFont: (direction) => {
-                state.lessonFontLevel = Math.max(-2, Math.min(4, state.lessonFontLevel + direction));
-                const sizes = ['0.96rem', '1.06rem', '1.16rem', '1.26rem', '1.36rem', '1.46rem', '1.58rem'];
-                const content = document.getElementById('lesson-content');
-                if (content) content.style.fontSize = sizes[state.lessonFontLevel + 2];
-            },
-            toggleFocusMode: () => {
-                document.body.classList.toggle('focus-reading');
-                const active = document.body.classList.contains('focus-reading');
-                const status = document.getElementById('lesson-reader-status');
-                if (status) status.innerText = active ? 'وضع التركيز مفعل' : 'وضع الدراسة التفاعلي';
-            },
-            handleUrlParams: () => {
-                const urlParams = new URLSearchParams(window.location.search);
-                const lessonId = urlParams.get('lesson'), quizId = urlParams.get('quiz'), bookId = urlParams.get('book');
-                if (lessonId && state.db.lessons.some(l => l.id === lessonId)) app.openLesson(lessonId);
-                else if (quizId && state.db.quizzes.some(q => q.id === quizId)) app.startQuiz(quizId, 'landing');
-                else if (bookId && state.db.books.some(b => b.id === bookId)) app.openBook(bookId);
-                else app.showSection('landing');
-            },
-            resetUrlAndGo: (sectionId) => {
-                window.history.pushState({}, document.title, window.location.pathname);
-                app.showSection(sectionId);
-            },
-            shareCurrent: async (type) => {
-                let id, title;
-                if (type === 'lesson' && state.currentLesson) { id = state.currentLesson.id; title = state.currentLesson.title; }
-                else if (type === 'quiz') {
-                    const realQuiz = state.quizData ? state.db.quizzes.find(q => q.id === state.quizData.id) : null;
-                    if (realQuiz) { id = realQuiz.id; title = realQuiz.name || 'اختبار'; }
-                    else if (state.currentLesson?.quizId) { id = state.currentLesson.quizId; title = state.currentLesson.title; }
-                    else return alert('مشاركة الرابط متاحة للاختبارات المنشورة.');
-                }
-                const shareUrl = `${window.location.origin}${window.location.pathname}?${type}=${id}`;
-                const shareText = `أدعوك للاستفادة من هذا ${type === 'lesson' ? 'الدرس المشروح' : 'الاختبار التفاعلي'}: ${title} 📚`;
-                if (navigator.share) { try { await navigator.share({ title, text: shareText, url: shareUrl }); return; } catch (e) {} }
-                navigator.clipboard?.writeText(`${shareText}\n${shareUrl}`).then(() => alert('تم نسخ الرابط بنجاح!'));
-            },
-            initDhikr: () => {
-                if (state.dhikrIntervalId) clearInterval(state.dhikrIntervalId);
-                const athkar = state.db.settings?.dhikrList || ['سبحان الله وبحمده، سبحان الله العظيم', 'اللهم علمنا ما ينفعنا وانفعنا بما علمتنا'];
-                const intervalMinutes = state.db.settings?.dhikrInterval || 2;
-                state.dhikrIntervalId = setInterval(() => {
-                    const toast = document.getElementById('dhikr-toast');
-                    const txt = document.getElementById('dhikr-text');
-                    if (!toast || !txt) return;
-                    txt.innerText = athkar[Math.floor(Math.random() * athkar.length)];
-                    toast.style.transform = 'translateX(0)';
-                    setTimeout(() => { toast.style.transform = 'translateX(150%)'; }, 6000);
-                }, intervalMinutes * 60 * 1000);
-            },
-            isScheduled: item => Number(item?.publishAt || 0) > Date.now(),
-            offlineStorageKey: () => `ahmed_offline_lessons_${state.auth.user?.uid || 'guest'}`,
-            getOfflineStore: () => { try { return JSON.parse(localStorage.getItem(app.offlineStorageKey()) || '{}'); } catch (e) { return {}; } },
-            setOfflineStore: store => { localStorage.setItem(app.offlineStorageKey(), JSON.stringify(store || {})); app.renderOfflineLessons(); app.updateOfflineButton(); },
-            getOfflineLesson: id => app.getOfflineStore()[id] || null,
-            toggleOfflineCurrentLesson: () => {
-                const l = state.currentLesson; if (!l) return;
-                const store = app.getOfflineStore();
-                if (store[l.id]) { delete store[l.id]; app.setOfflineStore(store); return; }
-                store[l.id] = { savedAt: Date.now(), lesson: JSON.parse(JSON.stringify(l)), chapter: state.currentChap || null, category: state.currentCat || null };
-                try { app.setOfflineStore(store); } catch (e) { alert('مساحة التخزين غير كافية.'); }
-            },
-            updateOfflineButton: () => {
-                const b = document.getElementById('offline-lesson-btn'); if (!b || !state.currentLesson) return;
-                const saved = !!app.getOfflineLesson(state.currentLesson.id);
-                b.innerHTML = `<i class="fas ${saved ? 'fa-circle-check' : 'fa-cloud-arrow-down'}"></i>`;
-            },
-            renderOfflineLessons: () => {
-                const box = document.getElementById('offline-lessons-list'); if (!box) return;
-                const entries = Object.values(app.getOfflineStore()).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
-                box.innerHTML = entries.length ? entries.map(e => `<div class="flex items-center justify-between gap-3 border border-slate-100 rounded-2xl p-4"><div class="min-w-0"><strong class="text-slate-800 truncate block">${app.escapeHtml(e.lesson?.title || 'درس')}</strong><span class="text-[10px] font-bold text-slate-400">محفوظ للقراءة بدون إنترنت</span></div><div class="flex gap-2"><button onclick="app.openOfflineLesson('${e.lesson?.id || ''}')" class="bg-cyan-50 text-cyan-800 px-3 py-2 rounded-xl font-black text-xs">فتح</button><button onclick="app.removeOfflineLesson('${e.lesson?.id || ''}')" class="bg-red-50 text-red-600 w-9 h-9 rounded-xl"><i class="fas fa-trash"></i></button></div></div>`).join('') : '<div class="text-center p-5 text-slate-400 font-bold">لم تحفظ دروساً للأوفلاين بعد.</div>';
-            },
-            removeOfflineLesson: id => { const s = app.getOfflineStore(); delete s[id]; app.setOfflineStore(s); },
-            openOfflineLesson: async id => {
-                const e = app.getOfflineLesson(id); if (!e) return;
-                if (e.lesson && !state.db.lessons.some(x => x.id === e.lesson.id)) state.db.lessons.push(e.lesson);
-                state.offlineOverrideId = id;
-                try { await app.openLesson(id); } finally { state.offlineOverrideId = null; }
-            },
-            clearQuizTimer: () => { if (state.quizSession?.timerId) clearInterval(state.quizSession.timerId); document.getElementById('quiz-timer')?.classList.add('hidden'); },
-            installPwa: async () => {
-                if (state.installPrompt) { state.installPrompt.prompt(); await state.installPrompt.userChoice; state.installPrompt = null; return; }
-                alert('لتثبيت المنصة كتطبيق: افتح قائمة المتصفح واختر «إضافة إلى الشاشة الرئيسية» أو «تثبيت التطبيق».');
-            }
-        });
-
-        window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); state.installPrompt = e; });
-        window.onload = app.init;
-    </script>
-</body>
-</html>
+                w.document.write(`
