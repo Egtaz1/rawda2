@@ -1167,36 +1167,60 @@
                     <!-- الفيديو العلوي -->
                     <div id="lesson-video-top" data-inner-lesson="video" class="hidden mb-8"></div>
 
-                    <!-- شريط القارئ الصوتي الآلي للنص المفرغ (TTS Audio Reader) -->
-                    <div id="lesson-tts-bar" class="hidden mb-7 p-4 rounded-2xl bg-gradient-to-l from-islamic-900 to-islamic-800 text-white shadow-lg border border-amber-300/40 animate-fadeIn">
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                            <div class="flex items-center gap-3">
-                                <span id="tts-pulse-icon" class="w-10 h-10 rounded-xl bg-amber-400/20 border border-amber-300/40 text-amber-300 flex items-center justify-center">
-                                    <i class="fas fa-headphones-simple text-lg"></i>
+                    <!-- شريط القارئ الصوتي الذكي للنص المفرغ (يدعم اللابتوب والموبايل والتقديم والتأخير والاستئناف الفوري) -->
+                    <div id="lesson-tts-bar" class="hidden mb-7 p-4 md:p-5 rounded-3xl bg-gradient-to-l from-islamic-900 via-islamic-800 to-islamic-900 text-white shadow-xl border border-amber-300/40 animate-fadeIn space-y-4">
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                            <div class="flex items-start sm:items-center gap-3 min-w-0">
+                                <span id="tts-pulse-icon" class="w-11 h-11 rounded-2xl bg-amber-400/20 border border-amber-300/40 text-amber-300 flex items-center justify-center shrink-0">
+                                    <i class="fas fa-headphones-simple text-xl"></i>
                                 </span>
-                                <div>
-                                    <div class="flex items-center gap-2">
-                                        <strong class="text-sm font-black text-amber-200">القارئ الصوتي للنص المفرغ</strong>
-                                        <span id="tts-status-badge" class="text-[10px] font-black bg-white/10 px-2 py-0.5 rounded-md text-emerald-200">جاهز للقراءة</span>
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                        <strong class="text-sm font-black text-amber-200">المشغل الصوتي الذكي للدرس</strong>
+                                        <span id="tts-status-badge" class="text-[10px] font-black bg-white/15 px-2.5 py-0.5 rounded-lg text-emerald-200">جاهز للقراءة</span>
+                                        <span id="tts-counter-badge" class="text-[10px] font-black bg-amber-400/20 text-amber-200 px-2.5 py-0.5 rounded-lg">0 / 0</span>
                                     </div>
-                                    <p id="tts-progress-text" class="text-[11px] font-bold text-white/75 mt-0.5">مناسب للاستماع للدرس أثناء المواصلات أو المشي دون استهلاك باقة الإنترنت</p>
+                                    <p id="tts-progress-text" class="text-xs font-bold text-white/85 mt-1 line-clamp-2 leading-6">اضغط تشغيل للاستماع، ويمكنك التقديم والتأخير أو سحب المؤشر لأي فقرة في الدرس</p>
                                 </div>
                             </div>
+
+                            <!-- أزرار التحكم الكاملة (تأخير / تشغيل واستئناف / إيقاف مؤقت / تقديم / إعادة) -->
                             <div class="flex items-center gap-2 flex-wrap">
-                                <button id="tts-play-btn" onclick="app.startOrResumeTts()" class="bg-amber-400 hover:bg-amber-300 text-emerald-950 px-4 py-2 rounded-xl font-black text-xs flex items-center gap-1.5 shadow">
+                                <button onclick="app.stepTts(-1)" class="bg-white/12 hover:bg-white/25 border border-white/20 text-white px-3 py-2 rounded-xl font-black text-xs flex items-center gap-1" title="رجوع للفقرة السابقة (تأخير)">
+                                    <i class="fas fa-backward-step"></i><span>تأخير</span>
+                                </button>
+                                <button id="tts-play-btn" onclick="app.startOrResumeTts()" class="bg-amber-400 hover:bg-amber-300 text-emerald-950 px-5 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 shadow-lg">
                                     <i class="fas fa-play"></i><span>تشغيل القراءة</span>
                                 </button>
-                                <button id="tts-pause-btn" onclick="app.pauseTts()" class="hidden bg-white/15 hover:bg-white/25 text-white px-3.5 py-2 rounded-xl font-black text-xs">
-                                    <i class="fas fa-pause ml-1"></i>إيقاف مؤقت
+                                <button id="tts-pause-btn" onclick="app.pauseTts()" class="hidden bg-amber-200 hover:bg-amber-300 text-emerald-950 px-4 py-2.5 rounded-xl font-black text-xs flex items-center gap-1.5 shadow">
+                                    <i class="fas fa-pause"></i><span>إيقاف مؤقت</span>
                                 </button>
-                                <button onclick="app.stopTts()" class="bg-rose-500/20 hover:bg-rose-500/35 border border-rose-300/30 text-rose-100 px-3 py-2 rounded-xl font-black text-xs" title="إيقاف وإعادة من البداية">
-                                    <i class="fas fa-stop"></i>
+                                <button onclick="app.stepTts(1)" class="bg-white/12 hover:bg-white/25 border border-white/20 text-white px-3 py-2 rounded-xl font-black text-xs flex items-center gap-1" title="القفز للفقرة التالية (تقديم)">
+                                    <span>تقديم</span><i class="fas fa-forward-step"></i>
                                 </button>
+                                <button onclick="app.stopTts()" class="bg-rose-500/25 hover:bg-rose-500/40 border border-rose-300/30 text-rose-100 px-3 py-2 rounded-xl font-black text-xs" title="إيقاف وإعادة من أول الدرس">
+                                    <i class="fas fa-rotate-right"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- شريط التقديم والتأخير التفاعلي (Seek Bar) + إعدادات السرعة والمحرك -->
+                        <div class="pt-3 border-t border-white/15 flex flex-col md:flex-row md:items-center gap-3">
+                            <div class="flex items-center gap-3 flex-1">
+                                <span class="text-[11px] font-black text-amber-200 shrink-0">موضع القراءة:</span>
+                                <input id="tts-seek-slider" type="range" min="0" max="10" value="0" oninput="app.seekTtsTo(this.value, false)" onchange="app.seekTtsTo(this.value, true)" class="w-full accent-amber-400 cursor-pointer h-2 rounded-lg bg-white/20">
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <select id="tts-engine-select" onchange="app.changeTtsEngineMode(this.value)" class="bg-white/10 border border-white/20 text-white rounded-xl px-2.5 py-1.5 text-xs font-black" title="اختر محرك الصوت (جرب الصوت السحابي إذا لم يعمل صوت الويندوز على اللابتوب)">
+                                    <option value="auto" class="text-slate-900">🔊 المحرك: تلقائي ذكي</option>
+                                    <option value="cloud" class="text-slate-900">☁️ قارئ سحابي (للابتوب والكمبيوتر)</option>
+                                    <option value="native" class="text-slate-900">📱 صوت الجهاز المحلي</option>
+                                </select>
                                 <select id="tts-rate-select" onchange="app.changeTtsRate(this.value)" class="bg-white/10 border border-white/20 text-white rounded-xl px-2.5 py-1.5 text-xs font-black">
-                                    <option value="0.9" class="text-slate-900">سرعة هادئة (0.9x)</option>
-                                    <option value="1" selected class="text-slate-900">سرعة طبيعية (1x)</option>
-                                    <option value="1.2" class="text-slate-900">سرعة متوسطة (1.2x)</option>
-                                    <option value="1.4" class="text-slate-900">سرعة سريعة (1.4x)</option>
+                                    <option value="0.9" class="text-slate-900">السرعة: 0.9x</option>
+                                    <option value="1" selected class="text-slate-900">السرعة: 1x</option>
+                                    <option value="1.25" class="text-slate-900">السرعة: 1.25x</option>
+                                    <option value="1.5" class="text-slate-900">السرعة: 1.5x</option>
                                 </select>
                             </div>
                         </div>
@@ -1669,22 +1693,57 @@
                 return (start > 0 ? '...' : '') + cleanText.slice(start, end) + (end < cleanText.length ? '...' : '');
             },
 
-            // ================= 2. القارئ الصوتي الآلي للنصوص المفرغة (TTS Audio Reader) =================
-            ttsState: { chunks: [], index: 0, playing: false, paused: false, rate: 1 },
+            // ================= 2. القارئ الصوتي الذكي للنصوص المفرغة (يدعم اللابتوب والموبايل والتقديم والتأخير والاستئناف المضمون) =================
+            ttsState: {
+                chunks: [],
+                index: 0,
+                playing: false,
+                paused: false,
+                rate: 1,
+                preferredEngine: 'auto', // 'auto' | 'cloud' | 'native'
+                activeEngine: 'native',
+                audioEl: null,
+                watchdog: null,
+                sessionId: 0
+            },
+
+            initVoices: () => {
+                if ('speechSynthesis' in window) {
+                    window.speechSynthesis.getVoices();
+                    window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+                }
+            },
+
+            getBestArabicVoice: () => {
+                if (!('speechSynthesis' in window)) return null;
+                const voices = window.speechSynthesis.getVoices() || [];
+                return voices.find(v => /ar/i.test(v.lang) && /natural|online|google|microsoft|hoda|salma|shakir|naayf|zariyah|maged|tarik/i.test(v.name))
+                    || voices.find(v => /ar/i.test(v.lang))
+                    || voices.find(v => /arabic|عربي/i.test(v.name))
+                    || null;
+            },
 
             toggleTtsReaderBar: () => {
+                app.initVoices();
                 const bar = document.getElementById('lesson-tts-bar');
                 if (!bar) return;
                 const willShow = bar.classList.contains('hidden');
                 bar.classList.toggle('hidden', !willShow);
-                if (!willShow) app.stopTts();
+                if (willShow) {
+                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                    app.ttsState.index = 0;
+                    app.syncTtsSlider();
+                    app.updateTtsUI('جاهز للقراءة', app.ttsState.chunks[0] || 'اضغط تشغيل للاستماع لنص الدرس');
+                } else {
+                    app.stopTts();
+                }
             },
 
-            prepareTtsChunks: () => {
+            prepareTtsChunks: (maxLen = 165) => {
                 const raw = `${state.currentLesson?.title || ''}. ${String(state.currentLesson?.content || '')}`
                     .replace(/\[\/[^\]]+\]/g, '. ')
                     .replace(/\[[^\]]+\]/g, ' ')
-                    .replace(/[{}«»*]/g, ' ')
+                    .replace(/[{}«»*#]/g, ' ')
                     .replace(/\s+/g, ' ')
                     .trim();
                 if (!raw) return [];
@@ -1692,7 +1751,16 @@
                 const chunks = [];
                 let buf = '';
                 parts.forEach(p => {
-                    if ((buf + ' ' + p).length > 220 && buf) {
+                    if (p.length > maxLen) {
+                        if (buf.trim()) { chunks.push(buf.trim()); buf = ''; }
+                        const words = p.split(' ');
+                        let sub = '';
+                        words.forEach(w => {
+                            if ((sub + ' ' + w).length > maxLen && sub) { chunks.push(sub.trim()); sub = w; }
+                            else sub = (sub ? sub + ' ' : '') + w;
+                        });
+                        if (sub.trim()) buf = sub;
+                    } else if ((buf + ' ' + p).length > maxLen && buf) {
                         chunks.push(buf.trim());
                         buf = p;
                     } else {
@@ -1703,72 +1771,247 @@
                 return chunks;
             },
 
-            startOrResumeTts: () => {
-                if (!('speechSynthesis' in window)) {
-                    return alert('متصفحك الحالي لا يدعم القراءة الصوتية الآلية.');
+            syncTtsSlider: () => {
+                const slider = document.getElementById('tts-seek-slider');
+                const counter = document.getElementById('tts-counter-badge');
+                const total = app.ttsState.chunks.length;
+                const cur = total ? Math.min(total, app.ttsState.index + 1) : 0;
+                if (slider) {
+                    slider.max = Math.max(0, total - 1);
+                    slider.value = Math.min(app.ttsState.index, Math.max(0, total - 1));
                 }
-                if (app.ttsState.playing && app.ttsState.paused) {
-                    window.speechSynthesis.resume();
+                if (counter) counter.innerText = `الفقرة ${cur} من ${total}`;
+            },
+
+            cleanupTtsEngines: () => {
+                app.ttsState.sessionId++;
+                clearTimeout(app.ttsState.watchdog);
+                if ('speechSynthesis' in window) {
+                    try { window.speechSynthesis.cancel(); } catch (e) {}
+                }
+                if (app.ttsState.audioEl) {
+                    try {
+                        app.ttsState.audioEl.onended = null;
+                        app.ttsState.audioEl.onerror = null;
+                        app.ttsState.audioEl.pause();
+                        app.ttsState.audioEl.src = '';
+                    } catch (e) {}
+                    app.ttsState.audioEl = null;
+                }
+            },
+
+            resolveActiveEngine: () => {
+                if (app.ttsState.preferredEngine === 'cloud') return 'cloud';
+                if (app.ttsState.preferredEngine === 'native') return 'native';
+                // في الوضع التلقائي: إذا لم يجد صوتاً عربياً مثبتاً في الويندوز على اللابتوب يستخدم القارئ السحابي مباشرة
+                return app.getBestArabicVoice() ? 'native' : 'cloud';
+            },
+
+            startOrResumeTts: () => {
+                app.initVoices();
+                if (!app.ttsState.chunks.length) {
+                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                }
+                if (!app.ttsState.chunks.length) return alert('لا يوجد نص مكتوب في هذا الدرس لقراءته صوتياً.');
+
+                // إذا كان متوقفاً مؤقتاً: في الموبايل دالة speechSynthesis.resume() معطوبة، لذلك نعيد تشغيل الفقرة الحالية المحفوظة في index مباشرة وبشكل مضمون 100%!
+                if (app.ttsState.paused) {
                     app.ttsState.paused = false;
-                    app.updateTtsUI('يقرأ الآن...');
+                    app.ttsState.playing = true;
+                    if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl && app.ttsState.audioEl.src) {
+                        app.updateTtsUI('يقرأ الآن...', app.ttsState.chunks[app.ttsState.index] || '');
+                        app.ttsState.audioEl.play().catch(() => app.speakCurrentTtsChunk());
+                        return;
+                    }
+                    app.cleanupTtsEngines();
+                    app.ttsState.activeEngine = app.resolveActiveEngine();
+                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
                     return;
                 }
-                const chunks = app.prepareTtsChunks();
-                if (!chunks.length) return alert('لا يوجد نص مكتوب في هذا الدرس لقراءته صوتياً.');
-                window.speechSynthesis.cancel();
-                app.ttsState.chunks = chunks;
-                app.ttsState.index = 0;
+
+                // بدء تشغيل جديد من الموضع الحالي للمؤشر (أو من البداية إذا انتهى الدرس)
+                if (app.ttsState.index >= app.ttsState.chunks.length) app.ttsState.index = 0;
+                app.cleanupTtsEngines();
                 app.ttsState.playing = true;
                 app.ttsState.paused = false;
-                app.speakCurrentTtsChunk();
+                app.ttsState.activeEngine = app.resolveActiveEngine();
+                setTimeout(() => app.speakCurrentTtsChunk(), 70);
             },
 
             speakCurrentTtsChunk: () => {
-                if (!app.ttsState.playing) return;
+                if (!app.ttsState.playing || app.ttsState.paused) return;
                 if (app.ttsState.index >= app.ttsState.chunks.length) {
                     app.stopTts('اكتملت قراءة الدرس ✓');
                     return;
                 }
+                const mySession = app.ttsState.sessionId;
                 const text = app.ttsState.chunks[app.ttsState.index];
-                const utter = new SpeechSynthesisUtterance(text);
-                utter.lang = 'ar-SA';
-                utter.rate = Number(app.ttsState.rate) || 1;
-                const voices = window.speechSynthesis.getVoices() || [];
-                const arVoice = voices.find(v => v.lang && v.lang.toLowerCase().startsWith('ar'));
-                if (arVoice) utter.voice = arVoice;
+                app.syncTtsSlider();
+                app.updateTtsUI('يقرأ الآن...', text);
 
-                app.updateTtsUI(`جاري القراءة (${app.ttsState.index + 1} من ${app.ttsState.chunks.length})`, text);
-                utter.onend = () => {
-                    if (!app.ttsState.playing) return;
-                    app.ttsState.index++;
-                    app.speakCurrentTtsChunk();
-                };
-                utter.onerror = () => {
-                    app.stopTts('توقفت القراءة');
-                };
-                window.speechSynthesis.speak(utter);
+                if (app.ttsState.activeEngine === 'cloud') {
+                    app.speakChunkViaCloudAudio(text, mySession);
+                    return;
+                }
+
+                try {
+                    const utter = new SpeechSynthesisUtterance(text);
+                    window.__activeTtsUtterance = utter;
+                    const arVoice = app.getBestArabicVoice();
+                    if (arVoice) {
+                        utter.voice = arVoice;
+                        utter.lang = arVoice.lang || 'ar-SA';
+                    } else {
+                        utter.lang = 'ar-SA';
+                    }
+                    utter.rate = Number(app.ttsState.rate) || 1;
+
+                    let started = false;
+                    utter.onstart = () => {
+                        if (mySession !== app.ttsState.sessionId) return;
+                        started = true;
+                        clearTimeout(app.ttsState.watchdog);
+                    };
+                    utter.onend = () => {
+                        if (mySession !== app.ttsState.sessionId) return;
+                        clearTimeout(app.ttsState.watchdog);
+                        if (!app.ttsState.playing || app.ttsState.paused) return;
+                        app.ttsState.index++;
+                        app.speakCurrentTtsChunk();
+                    };
+                    utter.onerror = (ev) => {
+                        if (mySession !== app.ttsState.sessionId) return;
+                        clearTimeout(app.ttsState.watchdog);
+                        if (!app.ttsState.playing || app.ttsState.paused) return;
+                        if (ev && (ev.error === 'canceled' || ev.error === 'interrupted')) return;
+                        // التحويل التلقائي للقارئ السحابي إذا فشل صوت الويندوز على اللابتوب
+                        app.ttsState.activeEngine = 'cloud';
+                        app.speakChunkViaCloudAudio(text, mySession);
+                    };
+
+                    window.speechSynthesis.speak(utter);
+
+                    // مراقب ذكي للابتوب: إذا لم يبدأ صوت الويندوز خلال 1.1 ثانية يتحول فوراً للقارئ السحابي
+                    clearTimeout(app.ttsState.watchdog);
+                    app.ttsState.watchdog = setTimeout(() => {
+                        if (mySession === app.ttsState.sessionId && app.ttsState.playing && !app.ttsState.paused && !started) {
+                            try { window.speechSynthesis.cancel(); } catch (e) {}
+                            app.ttsState.activeEngine = 'cloud';
+                            app.speakChunkViaCloudAudio(text, mySession);
+                        }
+                    }, 1100);
+                } catch (e) {
+                    app.ttsState.activeEngine = 'cloud';
+                    app.speakChunkViaCloudAudio(text, mySession);
+                }
             },
 
-            pauseTts: () => {
-                if (!('speechSynthesis' in window) || !app.ttsState.playing) return;
-                window.speechSynthesis.pause();
+            speakChunkViaCloudAudio: (text, mySession) => {
+                if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
+                const encoded = encodeURIComponent(text);
+                const urls = [
+                    `https://translate.googleapis.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ar&q=${encoded}`,
+                    `https://dict.youdao.com/dictvoice?le=ar&audio=${encoded}`
+                ];
+                let urlIdx = 0;
+                const tryPlay = () => {
+                    if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
+                    if (urlIdx >= urls.length) {
+                        app.pauseTts('تعذر تشغيل الصوت السحابي — جرب تغيير المحرك');
+                        return;
+                    }
+                    const audio = new Audio(urls[urlIdx++]);
+                    audio.playbackRate = Number(app.ttsState.rate) || 1;
+                    app.ttsState.audioEl = audio;
+                    audio.onended = () => {
+                        if (!app.ttsState.playing || app.ttsState.paused || mySession !== app.ttsState.sessionId) return;
+                        app.ttsState.index++;
+                        app.speakCurrentTtsChunk();
+                    };
+                    audio.onerror = () => tryPlay();
+                    audio.play().catch(() => tryPlay());
+                };
+                tryPlay();
+            },
+
+            pauseTts: (customMsg = 'متوقف مؤقتاً (اضغط استئناف للمتابعة من نفس الموضع)') => {
+                if (!app.ttsState.playing) return;
                 app.ttsState.paused = true;
-                app.updateTtsUI('متوقف مؤقتاً');
+                clearTimeout(app.ttsState.watchdog);
+                if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl) {
+                    try { app.ttsState.audioEl.pause(); } catch (e) {}
+                } else {
+                    // على الموبايل واللابتوب: نلغي النطق الحالي مع الاحتفاظ برقم الجملة الحالية (app.ttsState.index) لكي يعمل زر الاستئناف بنسبة 100% دون أن يتجمد أو يعود للأول!
+                    app.ttsState.sessionId++;
+                    if ('speechSynthesis' in window) {
+                        try { window.speechSynthesis.cancel(); } catch (e) {}
+                    }
+                }
+                app.syncTtsSlider();
+                app.updateTtsUI(customMsg, app.ttsState.chunks[app.ttsState.index] || '');
             },
 
-            stopTts: (msg = 'جاهز للقراءة') => {
-                if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+            // التقديم والتأخير بالفقرات (زر تقديم ⏭️ وزر تأخير ⏮️)
+            stepTts: (delta = 1) => {
+                if (!app.ttsState.chunks.length) {
+                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                }
+                if (!app.ttsState.chunks.length) return;
+                const nextIdx = Math.max(0, Math.min(app.ttsState.chunks.length - 1, app.ttsState.index + delta));
+                app.seekTtsTo(nextIdx, true);
+            },
+
+            // القفز لأي موضع عبر شريط التمرير التفاعلي (Seek Slider)
+            seekTtsTo: (targetIdx, commitSpeak = true) => {
+                if (!app.ttsState.chunks.length) {
+                    app.ttsState.chunks = app.prepareTtsChunks(165);
+                }
+                if (!app.ttsState.chunks.length) return;
+                const idx = Math.max(0, Math.min(app.ttsState.chunks.length - 1, parseInt(targetIdx) || 0));
+                app.ttsState.index = idx;
+                app.syncTtsSlider();
+                const previewText = app.ttsState.chunks[idx] || '';
+                if (!commitSpeak) {
+                    const prog = document.getElementById('tts-progress-text');
+                    if (prog) prog.innerText = previewText;
+                    return;
+                }
+                if (app.ttsState.playing && !app.ttsState.paused) {
+                    app.cleanupTtsEngines();
+                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                } else {
+                    if (app.ttsState.audioEl) { app.ttsState.audioEl.src = ''; app.ttsState.audioEl = null; }
+                    app.updateTtsUI(app.ttsState.paused ? 'متوقف مؤقتاً عند هذا الموضع' : 'جاهز للقراءة من هذا الموضع', previewText);
+                }
+            },
+
+            stopTts: (msg = 'جاهز للقراءة من البداية') => {
                 app.ttsState.playing = false;
                 app.ttsState.paused = false;
                 app.ttsState.index = 0;
-                app.updateTtsUI(msg, 'مناسب للاستماع للدرس أثناء المواصلات أو المشي دون استهلاك باقة الإنترنت');
+                app.cleanupTtsEngines();
+                app.syncTtsSlider();
+                app.updateTtsUI(msg, app.ttsState.chunks[0] || 'اضغط تشغيل للاستماع لنص الدرس');
+            },
+
+            changeTtsEngineMode: (mode) => {
+                app.ttsState.preferredEngine = mode || 'auto';
+                app.ttsState.activeEngine = app.resolveActiveEngine();
+                if (app.ttsState.playing && !app.ttsState.paused) {
+                    app.cleanupTtsEngines();
+                    setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                }
             },
 
             changeTtsRate: (val) => {
                 app.ttsState.rate = Number(val) || 1;
                 if (app.ttsState.playing && !app.ttsState.paused) {
-                    window.speechSynthesis.cancel();
-                    app.speakCurrentTtsChunk();
+                    if (app.ttsState.activeEngine === 'cloud' && app.ttsState.audioEl) {
+                        app.ttsState.audioEl.playbackRate = app.ttsState.rate;
+                    } else {
+                        app.cleanupTtsEngines();
+                        setTimeout(() => app.speakCurrentTtsChunk(), 60);
+                    }
                 }
             },
 
@@ -1778,15 +2021,15 @@
                 const playBtn = document.getElementById('tts-play-btn');
                 const pauseBtn = document.getElementById('tts-pause-btn');
                 if (badge) badge.innerText = statusText;
-                if (prog && snippet) prog.innerText = snippet.length > 110 ? snippet.slice(0, 110) + '...' : snippet;
+                if (prog && snippet) prog.innerText = snippet.length > 130 ? snippet.slice(0, 130) + '...' : snippet;
                 if (playBtn && pauseBtn) {
                     if (app.ttsState.playing && !app.ttsState.paused) {
                         playBtn.classList.add('hidden');
                         pauseBtn.classList.remove('hidden');
                     } else {
                         playBtn.classList.remove('hidden');
-                        playBtn.innerHTML = app.ttsState.paused
-                            ? '<i class="fas fa-play"></i><span>استئناف القراءة</span>'
+                        playBtn.innerHTML = (app.ttsState.paused || app.ttsState.index > 0)
+                            ? '<i class="fas fa-play"></i><span>استئناف من هذا الموضع</span>'
                             : '<i class="fas fa-play"></i><span>تشغيل القراءة</span>';
                         pauseBtn.classList.add('hidden');
                     }
